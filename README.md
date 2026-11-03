@@ -1,6 +1,22 @@
-# Nexora
+<p align="center">
+  <img src="assets/nexora-banner.png" alt="Nexora — a cozy home for your AI team" width="100%" />
+</p>
 
-**Nexora connects AI departments, people, workflows, and execution runtimes in one operating platform.**
+<h1 align="center">Nexora</h1>
+
+<p align="center">
+  <strong>A cozy home for your AI team.</strong>
+</p>
+
+<p align="center">
+  <a href="https://n8n.io/"><img src="https://img.shields.io/badge/n8n-workflows-55D6D0?style=for-the-badge&logo=n8n&logoColor=white" alt="Built on n8n" /></a>
+  <img src="https://img.shields.io/badge/Multi--Agent-AI%20Department-BD8CFF?style=for-the-badge" alt="Multi-Agent AI Department" />
+  <a href="LICENSE.md"><img src="https://img.shields.io/badge/Open%20Source-license%20notices-64A9E8?style=for-the-badge&logo=github&logoColor=white" alt="Open source with license notices" /></a>
+</p>
+
+<p align="center">
+  <strong>Nexora connects AI departments, people, workflows, and execution runtimes in one operating platform.</strong>
+</p>
 
 Nexora is an experimental, self-hostable AI operations platform built on the n8n codebase. It combines n8n workflow automation with an AI Department layer for organizing departments, members, goals, and work. The name Nexora suggests connection, a future-facing platform, and an ecosystem of AI capabilities.
 
