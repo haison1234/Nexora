@@ -1,0 +1,892 @@
+[
+  {
+    "name": "01 - Content Planner",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "p1",
+        "name": "Run planner",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const now = new Date();\nreturn [{json:{planId:'plan-'+now.toISOString().slice(0,10),brandId:'techviet',monthKey:now.toISOString().slice(0,7),title:'AI và tự động hóa cho doanh nghiệp nhỏ',topic:'Tự động hóa',objective:'Tăng nhận biết thương hiệu',brief:'Tạo nội dung thực tế, dễ áp dụng.',targetAudience:'Chủ doanh nghiệp nhỏ tại Việt Nam',status:'PLANNED'}}];"
+        },
+        "id": "p2",
+        "name": "Build monthly plan",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "content_plans"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "planId": "={{ $json.planId }}",
+              "brandId": "={{ $json.brandId }}",
+              "monthKey": "={{ $json.monthKey }}",
+              "title": "={{ $json.title }}",
+              "topic": "={{ $json.topic }}",
+              "objective": "={{ $json.objective }}",
+              "brief": "={{ $json.brief }}",
+              "targetAudience": "={{ $json.targetAudience }}",
+              "status": "={{ $json.status }}"
+            }
+          }
+        },
+        "id": "p3",
+        "name": "Save content plan",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run planner": {
+        "main": [
+          [
+            {
+              "node": "Build monthly plan",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build monthly plan": {
+        "main": [
+          [
+            {
+              "node": "Save content plan",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "01-content-planner-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "name": "02 - Facebook Writer",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "02-1",
+        "name": "Run Facebook writer",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const postId='facebook-02-'+Date.now();\nconst caption='Bài Facebook: 5 cách tự động hóa công việc cho doanh nghiệp nhỏ. Hãy bắt đầu từ một việc lặp lại mỗi ngày và đo kết quả.';\nreturn [{json:{postId,planId:'plan-demo',accountId:'facebook-techviet',platform:'FACEBOOK',contentType:'IMAGE',scheduledAt:new Date(Date.now()+3600000).toISOString(),currentVersionId:postId+'-v1',status:'DRAFT',versionId:postId+'-v1',versionNumber:1,caption,hashtags:'#AI #DoanhNghiepNho',imagePrompt:'Facebook social media illustration, clean, professional, Vietnamese small business'}}];"
+        },
+        "id": "02-2",
+        "name": "Build Facebook post",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "posts"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "postId": "={{ $json.postId }}",
+              "planId": "={{ $json.planId }}",
+              "accountId": "={{ $json.accountId }}",
+              "platform": "={{ $json.platform }}",
+              "contentType": "={{ $json.contentType }}",
+              "scheduledAt": "={{ $json.scheduledAt }}",
+              "currentVersionId": "={{ $json.currentVersionId }}",
+              "status": "={{ $json.status }}"
+            }
+          }
+        },
+        "id": "02-3",
+        "name": "Save Facebook post",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "post_versions"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "versionId": "={{ $json.versionId }}",
+              "postId": "={{ $json.postId }}",
+              "versionNumber": "={{ $json.versionNumber }}",
+              "caption": "={{ $json.caption }}",
+              "hashtags": "={{ $json.hashtags }}",
+              "imagePrompt": "={{ $json.imagePrompt }}",
+              "source": "AI",
+              "modelName": "manual-config"
+            }
+          }
+        },
+        "id": "02-4",
+        "name": "Save Facebook version",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run Facebook writer": {
+        "main": [
+          [
+            {
+              "node": "Build Facebook post",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Facebook post": {
+        "main": [
+          [
+            {
+              "node": "Save Facebook post",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save Facebook post": {
+        "main": [
+          [
+            {
+              "node": "Save Facebook version",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "02-facebook-writer-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "name": "03 - Instagram Writer",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "03-1",
+        "name": "Run Instagram writer",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const postId='instagram-03-'+Date.now();\nconst caption='5 cách dùng AI để tiết kiệm thời gian cho doanh nghiệp nhỏ ✨ Lưu lại để áp dụng hôm nay.';\nreturn [{json:{postId,planId:'plan-demo',accountId:'instagram-techviet',platform:'INSTAGRAM',contentType:'IMAGE',scheduledAt:new Date(Date.now()+3600000).toISOString(),currentVersionId:postId+'-v1',status:'DRAFT',versionId:postId+'-v1',versionNumber:1,caption,hashtags:'#AI #DoanhNghiepNho',imagePrompt:'Instagram social media illustration, clean, professional, Vietnamese small business'}}];"
+        },
+        "id": "03-2",
+        "name": "Build Instagram post",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "posts"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "postId": "={{ $json.postId }}",
+              "planId": "={{ $json.planId }}",
+              "accountId": "={{ $json.accountId }}",
+              "platform": "={{ $json.platform }}",
+              "contentType": "={{ $json.contentType }}",
+              "scheduledAt": "={{ $json.scheduledAt }}",
+              "currentVersionId": "={{ $json.currentVersionId }}",
+              "status": "={{ $json.status }}"
+            }
+          }
+        },
+        "id": "03-3",
+        "name": "Save Instagram post",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "post_versions"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "versionId": "={{ $json.versionId }}",
+              "postId": "={{ $json.postId }}",
+              "versionNumber": "={{ $json.versionNumber }}",
+              "caption": "={{ $json.caption }}",
+              "hashtags": "={{ $json.hashtags }}",
+              "imagePrompt": "={{ $json.imagePrompt }}",
+              "source": "AI",
+              "modelName": "manual-config"
+            }
+          }
+        },
+        "id": "03-4",
+        "name": "Save Instagram version",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run Instagram writer": {
+        "main": [
+          [
+            {
+              "node": "Build Instagram post",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Instagram post": {
+        "main": [
+          [
+            {
+              "node": "Save Instagram post",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save Instagram post": {
+        "main": [
+          [
+            {
+              "node": "Save Instagram version",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "03-instagram-writer-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "name": "04 - Generate image with Kromoss",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "i1",
+        "name": "Run image generation",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "return [{json:{assetId:'asset-'+Date.now(),storageProvider:'LOCAL',localPath:'/Users/haison/kromoss-test/outputs',fileName:'generated-by-kromoss.png',mimeType:'image/png',prompt:$json.imagePrompt||'professional social media illustration for a Vietnamese small business',modelName:'lodestones/Kromoss',status:'GENERATED'}}];"
+        },
+        "id": "i2",
+        "name": "Prepare image request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "method": "POST",
+          "url": "http://127.0.0.1:8787/generate",
+          "sendBody": true,
+          "specifyBody": "json",
+          "jsonBody": "={\"prompt\":\"{{ $json.imagePrompt || $json.prompt || 'professional social media illustration for a Vietnamese small business' }}\",\"width\":1024,\"height\":1024,\"steps\":20,\"guidance_scale\":3}",
+          "options": {},
+          "responseFormat": "file",
+          "outputPropertyName": "data"
+        },
+        "id": "i3",
+        "name": "Kromoss generate PNG",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          840,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "media_assets"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "assetId": "={{ $json.assetId || \"asset-\"+Date.now() }}",
+              "storageProvider": "LOCAL",
+              "localPath": "={{ $json.localPath || \"/Users/haison/kromoss-test/outputs\" }}",
+              "fileName": "={{ $json.fileName || \"generated-by-kromoss.png\" }}",
+              "mimeType": "image/png",
+              "prompt": "={{ $json.prompt || $json.imagePrompt }}",
+              "modelName": "lodestones/Kromoss",
+              "status": "GENERATED"
+            }
+          }
+        },
+        "id": "i4",
+        "name": "Save media asset",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run image generation": {
+        "main": [
+          [
+            {
+              "node": "Prepare image request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare image request": {
+        "main": [
+          [
+            {
+              "node": "Kromoss generate PNG",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Kromoss generate PNG": {
+        "main": [
+          [
+            {
+              "node": "Save media asset",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "04-generate-image-with-kromoss-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "name": "05 - Review content and media",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "r1",
+        "name": "Run review",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "return [{json:{reviewId:'review-'+Date.now(),versionId:$json.versionId||'version-demo',decision:'APPROVED',feedback:'Nội dung rõ ràng, phù hợp kênh và có CTA.',modelName:'review-agent'}}];"
+        },
+        "id": "r2",
+        "name": "Review policy",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "reviews"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "reviewId": "={{ $json.reviewId }}",
+              "versionId": "={{ $json.versionId }}",
+              "decision": "={{ $json.decision }}",
+              "feedback": "={{ $json.feedback }}",
+              "modelName": "={{ $json.modelName }}"
+            }
+          }
+        },
+        "id": "r3",
+        "name": "Save review",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run review": {
+        "main": [
+          [
+            {
+              "node": "Review policy",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Review policy": {
+        "main": [
+          [
+            {
+              "node": "Save review",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "05-review-content-and-media-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "name": "06 - Human approval",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "a1",
+        "name": "Run approval request",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const postId=$json.postId||'post-demo'; const versionId=$json.versionId||'version-demo'; return [{json:{approvalId:'approval-'+Date.now(),postId,versionId,status:'PENDING',requestedTo:'owner',decidedBy:'',feedback:'',executionId:$execution.id,approvalUrl:$execution.resumeFormUrl||'OPEN_N8N_APPROVAL_FORM',requestedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString()}}];"
+        },
+        "id": "a2",
+        "name": "Build approval request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "approval_requests"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "approvalId": "={{ $json.approvalId }}",
+              "postId": "={{ $json.postId }}",
+              "versionId": "={{ $json.versionId }}",
+              "status": "={{ $json.status }}",
+              "requestedTo": "={{ $json.requestedTo }}",
+              "decidedBy": "={{ $json.decidedBy }}",
+              "feedback": "={{ $json.feedback }}",
+              "executionId": "={{ $json.executionId }}",
+              "approvalUrl": "={{ $json.approvalUrl }}",
+              "requestedAt": "={{ $json.requestedAt }}",
+              "expiresAt": "={{ $json.expiresAt }}"
+            }
+          }
+        },
+        "id": "a3",
+        "name": "Save approval request",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run approval request": {
+        "main": [
+          [
+            {
+              "node": "Build approval request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build approval request": {
+        "main": [
+          [
+            {
+              "node": "Save approval request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "06-human-approval-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "name": "07 - Publish Facebook",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "07-1",
+        "name": "Run Facebook publish",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "return [{json:{publicationId:'pub-'+Date.now(),postId:$json.postId||'post-demo',versionId:$json.versionId||'version-demo',accountId:'facebook-techviet',platform:'FACEBOOK',idempotencyKey:($json.postId||'post-demo')+'-FACEBOOK',status:'PUBLISHED',externalPostId:'',externalContainerId:'',externalUrl:'CONFIGURE_META_API_URL',attemptCount:0,lastErrorCode:'',lastErrorMessage:'',publishedAt:'new Date().toISOString()'}}];"
+        },
+        "id": "07-2",
+        "name": "Prepare Facebook publication",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "publications"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "publicationId": "={{ $json.publicationId }}",
+              "postId": "={{ $json.postId }}",
+              "versionId": "={{ $json.versionId }}",
+              "accountId": "={{ $json.accountId }}",
+              "platform": "={{ $json.platform }}",
+              "idempotencyKey": "={{ $json.idempotencyKey }}",
+              "status": "={{ $json.status }}",
+              "externalPostId": "={{ $json.externalPostId }}",
+              "externalContainerId": "={{ $json.externalContainerId }}",
+              "externalUrl": "={{ $json.externalUrl }}",
+              "attemptCount": "={{ $json.attemptCount }}",
+              "lastErrorCode": "={{ $json.lastErrorCode }}",
+              "lastErrorMessage": "={{ $json.lastErrorMessage }}",
+              "publishedAt": "={{ $json.publishedAt }}"
+            }
+          }
+        },
+        "id": "07-3",
+        "name": "Save Facebook publication",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run Facebook publish": {
+        "main": [
+          [
+            {
+              "node": "Prepare Facebook publication",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Facebook publication": {
+        "main": [
+          [
+            {
+              "node": "Save Facebook publication",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "07-publish-facebook-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  },
+  {
+    "name": "08 - Publish Instagram",
+    "nodes": [
+      {
+        "parameters": {},
+        "id": "08-1",
+        "name": "Run Instagram publish",
+        "type": "n8n-nodes-base.manualTrigger",
+        "typeVersion": 1,
+        "position": [
+          0,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "return [{json:{publicationId:'pub-'+Date.now(),postId:$json.postId||'post-demo',versionId:$json.versionId||'version-demo',accountId:'instagram-techviet',platform:'INSTAGRAM',idempotencyKey:($json.postId||'post-demo')+'-INSTAGRAM',status:'WAITING_MUSIC',externalPostId:'',externalContainerId:'',externalUrl:'OPEN_INSTAGRAM_COMPOSER_AFTER_PUBLIC_URL',attemptCount:0,lastErrorCode:'',lastErrorMessage:'',publishedAt:''}}];"
+        },
+        "id": "08-2",
+        "name": "Prepare Instagram publication",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          280,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "resource": "row",
+          "operation": "insert",
+          "dataTableId": {
+            "__rl": true,
+            "mode": "name",
+            "value": "publications"
+          },
+          "columns": {
+            "mappingMode": "defineBelow",
+            "value": {
+              "publicationId": "={{ $json.publicationId }}",
+              "postId": "={{ $json.postId }}",
+              "versionId": "={{ $json.versionId }}",
+              "accountId": "={{ $json.accountId }}",
+              "platform": "={{ $json.platform }}",
+              "idempotencyKey": "={{ $json.idempotencyKey }}",
+              "status": "={{ $json.status }}",
+              "externalPostId": "={{ $json.externalPostId }}",
+              "externalContainerId": "={{ $json.externalContainerId }}",
+              "externalUrl": "={{ $json.externalUrl }}",
+              "attemptCount": "={{ $json.attemptCount }}",
+              "lastErrorCode": "={{ $json.lastErrorCode }}",
+              "lastErrorMessage": "={{ $json.lastErrorMessage }}",
+              "publishedAt": "={{ $json.publishedAt }}"
+            }
+          }
+        },
+        "id": "08-3",
+        "name": "Save Instagram publication",
+        "type": "n8n-nodes-base.dataTable",
+        "typeVersion": 1.1,
+        "position": [
+          840,
+          300
+        ]
+      }
+    ],
+    "connections": {
+      "Run Instagram publish": {
+        "main": [
+          [
+            {
+              "node": "Prepare Instagram publication",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Instagram publication": {
+        "main": [
+          [
+            {
+              "node": "Save Instagram publication",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "active": false,
+    "settings": {
+      "timezone": "Asia/Ho_Chi_Minh",
+      "executionOrder": "v1"
+    },
+    "versionId": "08-publish-instagram-v2",
+    "meta": {
+      "templateCredsSetupCompleted": false
+    },
+    "tags": []
+  }
+]

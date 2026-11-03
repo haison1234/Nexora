@@ -1,0 +1,2147 @@
+{
+  "name": "08 - Publish Instagram",
+  "nodes": [
+    {
+      "id": "5dff560a-6123-4595-89b2-7b480b80357a",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "69c516a2-3711-493a-8f31-7981306a5a72",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "2f5cdd79-2b8e-4286-88da-b54d4f54b9af",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{\"brandId\":\"techviet\",\"brandName\":\"TechViet Daily\",\"brandBrief\":\"AI và tự động hóa cho chủ doanh nghiệp nhỏ tại Việt Nam. Gần gũi, rõ ràng, thực tế. Không bịa số liệu.\",\"model\":\"SELECT_OPENROUTER_MODEL\",\"fromEmail\":\"SET_SENDER_EMAIL\",\"toEmail\":\"SET_APPROVER_EMAIL\",\"cloudName\":\"SET_CLOUDINARY_CLOUD_NAME\",\"uploadPreset\":\"SET_UNSIGNED_UPLOAD_PRESET\",\"graphVersion\":\"v23.0\",\"kromossUrl\":\"http://127.0.0.1:8787\",\"maxVersions\":3}}];"
+      }
+    },
+    {
+      "id": "d3c60bb5-1d23-4f55-9e5f-9fa9cd1444c7",
+      "name": "Read posts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "c4a04f68-5ac9-4b34-b892-1ab2766afae1",
+      "name": "Select one post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Configuration').first().json; const now=Date.now(); const rows=$input.all().map(x=>x.json).filter(x=>x.postId && [\"APPROVED\",\"MANUAL_READY\"].includes(x.status) && x.platform==='INSTAGRAM').filter(x=>Number.isFinite(Date.parse(x.scheduledAt)) && Date.parse(x.scheduledAt)<=now).sort((a,b)=>String(a.scheduledAt).localeCompare(String(b.scheduledAt))); return rows.slice(0,1).map(x=>({json:{...x,cfg}}));"
+      }
+    },
+    {
+      "id": "c087ca36-650b-4e39-9a39-5aac16cc9af2",
+      "name": "Read version",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post versions"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $('Select one post').first().json.approvedVersionId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "4a5d1585-eee7-48e7-b7f9-9c80fa56ef25",
+      "name": "Version context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const post=$('Select one post').first().json; const version=$input.first().json; if(!version.versionId || version.postId!==post.postId) throw new Error('Post version is missing or belongs to another post'); return [{json:{...post,version}}];"
+      }
+    },
+    {
+      "id": "bc8d080d-14cd-4786-87d2-80a869a00808",
+      "name": "Read media link",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post version media"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $json.version.versionId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "bed3d7bb-738d-416f-87f9-39f8db905f77",
+      "name": "Choose media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const rows=$input.all().map(x=>x.json).filter(x=>x.assetId).sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)); if(!rows.length) throw new Error('No media is linked to this version'); return [{json:{...$('Version context').first().json,assetId:rows[0].assetId}}];"
+      }
+    },
+    {
+      "id": "41717d03-de09-4247-aade-a7d217d61c70",
+      "name": "Read asset",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "media assets"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "assetId",
+              "condition": "eq",
+              "keyValue": "={{ $json.assetId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "307a196f-227d-49a8-a687-c1e7e551d568",
+      "name": "Media context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const asset=$input.first().json; if(asset.status!=='READY' || !/^https:\\/\\//.test(asset.publicUrl||'')) throw new Error('A READY public HTTPS image is required'); return [{json:{...$('Choose media').first().json,asset}}];"
+      }
+    },
+    {
+      "id": "01fd386b-870b-4871-a3c9-92c0edb3fac9",
+      "name": "Read account",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "social accounts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "accountId",
+              "condition": "eq",
+              "keyValue": "={{ $json.accountId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "ACTIVE"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "88520183-c27a-45f8-82bd-40a0829155fa",
+      "name": "Publish context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Media context').first().json;const account=$input.first().json;if(!account.externalAccountId||account.platform!==c.platform)throw new Error('Active platform account is missing');if(c.currentVersionId!==c.approvedVersionId)throw new Error('Approved version is stale');if(!Number.isFinite(Date.parse(c.scheduledAt))||Date.parse(c.scheduledAt)>Date.now())return [];return [{json:{...c,account,publicationId:c.postId+'-'+c.approvedVersionId,idempotencyKey:c.postId+'-'+c.approvedVersionId,caption:[c.version.caption,c.version.hashtags].filter(Boolean).join('\\n\\n')}}];"
+      }
+    },
+    {
+      "id": "03e178ff-8cb1-45f5-8557-0fd383f7a0ae",
+      "name": "Read publication history",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3120,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $json.postId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "1f657bb8-48f2-4642-aa01-e9cd0a910435",
+      "name": "Prevent repeated publish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Publish context').first().json;const rows=$input.all().map(x=>x.json);if(rows.some(x=>x.publicationId&&['PUBLISHED','PUBLISHING','UNKNOWN','MANUAL_SENT'].includes(x.status)))return [];const previous=rows.find(x=>x.publicationId===c.publicationId);return [{json:{...c,attemptCount:Number(previous?.attemptCount||0)+1}}];"
+      }
+    },
+    {
+      "id": "ee7c49dd-a6db-4b2d-9939-ad295f153d74",
+      "name": "Claim publication",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3600,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $json.postId }}"
+            },
+            {
+              "keyName": "approvedVersionId",
+              "condition": "eq",
+              "keyValue": "={{ $json.approvedVersionId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "={{ $json.status }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "PUBLISHING"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ff7db841-f1d8-4e8b-a800-38eff1c1b86d",
+      "name": "Save publication attempt",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "publicationId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.publicationId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "publicationId": "={{ $('Publish context').first().json.publicationId }}",
+            "postId": "={{ $('Publish context').first().json.postId }}",
+            "versionId": "={{ $('Publish context').first().json.approvedVersionId }}",
+            "accountId": "={{ $('Publish context').first().json.accountId }}",
+            "platform": "INSTAGRAM",
+            "idempotencyKey": "={{ $('Publish context').first().json.idempotencyKey }}",
+            "status": "PUBLISHING",
+            "attemptCount": "={{ $('Prevent repeated publish').first().json.attemptCount }}",
+            "lastErrorCode": "",
+            "lastErrorMessage": ""
+          },
+          "schema": [
+            {
+              "id": "publicationId",
+              "displayName": "publicationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalPostId",
+              "displayName": "externalPostId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalContainerId",
+              "displayName": "externalContainerId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalUrl",
+              "displayName": "externalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attemptCount",
+              "displayName": "attemptCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorCode",
+              "displayName": "lastErrorCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorMessage",
+              "displayName": "lastErrorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "publishedAt",
+              "displayName": "publishedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "c752c019-2b0c-4e32-b9bf-e6eeed72e686",
+      "name": "User requested music",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4080,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d7cccfaa-4a94-406c-8b4f-247bea47e427",
+              "leftValue": "={{ $('Publish context').first().json.status==='MANUAL_READY' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ce8344e4-bd2e-4e2a-9999-1167fd15d9b9",
+      "name": "Send manual Instagram package",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        4320,
+        300
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $('Configuration').first().json.fromEmail }}",
+        "toEmail": "={{ $('Configuration').first().json.toEmail }}",
+        "subject": "={{ 'Ảnh Instagram để chọn nhạc: '+$('Publish context').first().json.postId }}",
+        "message": "={{ '<p>Tải ảnh, mở Instagram, tạo bài đăng, chọn nhạc và bấm đăng.</p><p><a href=\"'+$('Publish context').first().json.asset.publicUrl+'\">Tải ảnh JPEG</a> · <a href=\"https://www.instagram.com/\">Mở Instagram</a></p><pre>'+$('Publish context').first().json.caption.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</pre><p>Email này không tạo sẵn bản nháp trong Instagram.</p>' }}",
+        "emailFormat": "html",
+        "html": "={{ '<p>Tải ảnh, mở Instagram, tạo bài đăng, chọn nhạc và bấm đăng.</p><p><a href=\"'+$('Publish context').first().json.asset.publicUrl+'\">Tải ảnh JPEG</a> · <a href=\"https://www.instagram.com/\">Mở Instagram</a></p><pre>'+$('Publish context').first().json.caption.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</pre><p>Email này không tạo sẵn bản nháp trong Instagram.</p>' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "webhookId": "17572e17-5041-4543-a4e5-37e7872559ea"
+    },
+    {
+      "id": "ea46cd13-2d1e-48d5-952a-0f536ca6e9c8",
+      "name": "Record manual handoff",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4560,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "publicationId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.publicationId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "MANUAL_SENT",
+            "externalUrl": "https://www.instagram.com/"
+          },
+          "schema": [
+            {
+              "id": "publicationId",
+              "displayName": "publicationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalPostId",
+              "displayName": "externalPostId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalContainerId",
+              "displayName": "externalContainerId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalUrl",
+              "displayName": "externalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attemptCount",
+              "displayName": "attemptCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorCode",
+              "displayName": "lastErrorCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorMessage",
+              "displayName": "lastErrorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "publishedAt",
+              "displayName": "publishedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "41ec99fc-f941-4b73-90a7-5ef553ee4a23",
+      "name": "Mark awaiting manual post",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4800,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.postId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "AWAITING_MANUAL_POST"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "fb27e110-c467-4f58-9de0-70f99555da40",
+      "name": "Create Instagram container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        5040,
+        300
+      ],
+      "parameters": {
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true
+            }
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "={{ $('Configuration').first().json.graphVersion ? 'https://graph.facebook.com/'+$('Configuration').first().json.graphVersion+'/'+$('Publish context').first().json.account.externalAccountId+'/media' : '' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "image_url",
+              "value": "={{ $('Publish context').first().json.asset.publicUrl }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $('Publish context').first().json.caption }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "10cb7969-c096-4726-9d3a-5fb11e45ed98",
+      "name": "Validate container",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5280,
+        300
+      ],
+      "parameters": {
+        "jsCode": "if(!$json.id)return [{json:{failed:true,response:$json}}];return [{json:{containerId:String($json.id),failed:false}}];"
+      }
+    },
+    {
+      "id": "86b08cb4-74af-4a41-9d7f-cd27884e14ad",
+      "name": "Container created",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5520,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "b641d5d3-4eef-4ee9-a0c0-e620d937ac8f",
+              "leftValue": "={{ $json.failed===false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "bf05a8d4-a305-4213-a7b9-89428b0adf00",
+      "name": "Save container ID",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        5760,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "publicationId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.publicationId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "externalContainerId": "={{ $json.containerId }}"
+          },
+          "schema": [
+            {
+              "id": "publicationId",
+              "displayName": "publicationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalPostId",
+              "displayName": "externalPostId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalContainerId",
+              "displayName": "externalContainerId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalUrl",
+              "displayName": "externalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attemptCount",
+              "displayName": "attemptCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorCode",
+              "displayName": "lastErrorCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorMessage",
+              "displayName": "lastErrorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "publishedAt",
+              "displayName": "publishedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "1079855e-194a-4366-a8d9-2a3b7f90fd6d",
+      "name": "Wait for Instagram",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        6000,
+        300
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": 10,
+        "unit": "seconds"
+      },
+      "webhookId": "b4969684-339b-447e-bb48-68f09321f634"
+    },
+    {
+      "id": "801a32d1-1db7-4fa9-b25e-eb31f5e3946b",
+      "name": "Check container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        6240,
+        300
+      ],
+      "parameters": {
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true
+            }
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "GET",
+        "url": "={{ 'https://graph.facebook.com/'+$('Configuration').first().json.graphVersion+'/'+$('Validate container').first().json.containerId }}",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "status_code,status"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "983b5e20-2c81-44fd-afda-000820db9e5e",
+      "name": "Container polling result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const count=$runIndex+1;return [{json:{...$json,pollCount:count,ready:$json.status_code==='FINISHED',retry:count<12&&['IN_PROGRESS','IN PROGRESS'].includes($json.status_code)}}];"
+      }
+    },
+    {
+      "id": "c789566d-27b8-4103-9e9d-edc6a039f128",
+      "name": "Container is ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6720,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8d38a424-c9c8-49d7-adae-6110a7ed029a",
+              "leftValue": "={{ $json.ready===true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "7230587e-d312-46de-a6ca-f321d089188b",
+      "name": "Poll again",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        6960,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "9ab6215f-2e2b-4f98-8d51-c3c152f8f53d",
+              "leftValue": "={{ $json.retry===true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d13eba59-db86-4c87-96a3-e295761bbd07",
+      "name": "Publish Instagram container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        7200,
+        300
+      ],
+      "parameters": {
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true
+            }
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "={{ 'https://graph.facebook.com/'+$('Configuration').first().json.graphVersion+'/'+$('Publish context').first().json.account.externalAccountId+'/media_publish' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $('Validate container').first().json.containerId }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "644c438d-3668-4967-ab59-b82c82ff85c0",
+      "name": "Container preparation failed",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{status:'FAILED',externalPostId:'',externalUrl:'',publishedAt:'',lastErrorCode:'CONTAINER_NOT_READY',lastErrorMessage:JSON.stringify($json).slice(0,1000)}}];"
+      }
+    },
+    {
+      "id": "c9e07c1b-64d2-45df-aa6c-e7622d21038a",
+      "name": "Interpret publish response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7680,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const r=$json;const id=r.post_id||r.id;const success=typeof id==='string'&&id.length>0;return [{json:{status:success?'PUBLISHED':r.error?.code?'FAILED':'UNKNOWN',externalPostId:success?id:'',externalUrl:success?'':'',publishedAt:success?new Date().toISOString():'',lastErrorCode:success?'':String(r.error?.code||'UNKNOWN_RESULT'),lastErrorMessage:success?'':JSON.stringify(r.error||r).slice(0,1000)}}];"
+      }
+    },
+    {
+      "id": "05a11adf-3cef-453f-b2f2-e1a31fb17ba0",
+      "name": "Save publish result",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        7920,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "publicationId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.publicationId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "externalPostId": "={{ $json.externalPostId }}",
+            "externalUrl": "={{ $json.externalUrl }}",
+            "publishedAt": "={{ $json.publishedAt }}",
+            "lastErrorCode": "={{ $json.lastErrorCode }}",
+            "lastErrorMessage": "={{ $json.lastErrorMessage }}"
+          },
+          "schema": [
+            {
+              "id": "publicationId",
+              "displayName": "publicationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalPostId",
+              "displayName": "externalPostId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalContainerId",
+              "displayName": "externalContainerId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalUrl",
+              "displayName": "externalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attemptCount",
+              "displayName": "attemptCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorCode",
+              "displayName": "lastErrorCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorMessage",
+              "displayName": "lastErrorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "publishedAt",
+              "displayName": "publishedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "d12ebed2-edc2-4e17-8b38-aa621045a7fc",
+      "name": "Update post result",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        8160,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.postId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "PUBLISHING"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status==='PUBLISHED'?'PUBLISHED':$json.status==='FAILED'?'PUBLISH_FAILED':'PUBLISH_UNKNOWN' }}"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2623f643-e5aa-42b4-bcab-b82ccac25c15",
+      "name": "Send publish result",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        8400,
+        300
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $('Configuration').first().json.fromEmail }}",
+        "toEmail": "={{ $('Configuration').first().json.toEmail }}",
+        "subject": "={{ 'Kết quả đăng INSTAGRAM: '+$('Publish context').first().json.postId }}",
+        "message": "={{ '<p>Trạng thái: '+$('Save publish result').first().json.status+'</p><p>Post ID: '+String($('Save publish result').first().json.externalPostId||'')+'</p><p>'+String($('Save publish result').first().json.lastErrorMessage||'').replaceAll('&','&amp;').replaceAll('<','&lt;')+'</p>' }}",
+        "emailFormat": "html",
+        "html": "={{ '<p>Trạng thái: '+$('Save publish result').first().json.status+'</p><p>Post ID: '+String($('Save publish result').first().json.externalPostId||'')+'</p><p>'+String($('Save publish result').first().json.lastErrorMessage||'').replaceAll('&','&amp;').replaceAll('<','&lt;')+'</p>' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "webhookId": "0b54969c-d1d2-4d4f-b159-d482c7ebfcbf"
+    },
+    {
+      "id": "24013aef-9ed6-400a-9fbe-d5aca51e0171",
+      "name": "Read setup guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "content": "## 08 - Publish Instagram\nRead README-VI.md before running.\nSet Configuration and credentials. Schedules start disabled.\nTable names must match the imported tables.\nDo not run concurrent executions for the same account.",
+        "height": 220,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Read posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read posts": {
+      "main": [
+        [
+          {
+            "node": "Select one post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select one post": {
+      "main": [
+        [
+          {
+            "node": "Read version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read version": {
+      "main": [
+        [
+          {
+            "node": "Version context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Version context": {
+      "main": [
+        [
+          {
+            "node": "Read media link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read media link": {
+      "main": [
+        [
+          {
+            "node": "Choose media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose media": {
+      "main": [
+        [
+          {
+            "node": "Read asset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read asset": {
+      "main": [
+        [
+          {
+            "node": "Media context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save publication attempt": {
+      "main": [
+        [
+          {
+            "node": "User requested music",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "User requested music": {
+      "main": [
+        [
+          {
+            "node": "Send manual Instagram package",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Instagram container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send manual Instagram package": {
+      "main": [
+        [
+          {
+            "node": "Record manual handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record manual handoff": {
+      "main": [
+        [
+          {
+            "node": "Mark awaiting manual post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Instagram container": {
+      "main": [
+        [
+          {
+            "node": "Validate container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate container": {
+      "main": [
+        [
+          {
+            "node": "Container created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Container created": {
+      "main": [
+        [
+          {
+            "node": "Save container ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Container preparation failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save container ID": {
+      "main": [
+        [
+          {
+            "node": "Wait for Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Instagram": {
+      "main": [
+        [
+          {
+            "node": "Check container",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check container": {
+      "main": [
+        [
+          {
+            "node": "Container polling result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Container polling result": {
+      "main": [
+        [
+          {
+            "node": "Container is ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Container is ready": {
+      "main": [
+        [
+          {
+            "node": "Publish Instagram container",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Poll again",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll again": {
+      "main": [
+        [
+          {
+            "node": "Wait for Instagram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Container preparation failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Instagram container": {
+      "main": [
+        [
+          {
+            "node": "Interpret publish response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret publish response": {
+      "main": [
+        [
+          {
+            "node": "Save publish result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save publish result": {
+      "main": [
+        [
+          {
+            "node": "Update post result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Container preparation failed": {
+      "main": [
+        [
+          {
+            "node": "Save publish result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update post result": {
+      "main": [
+        [
+          {
+            "node": "Send publish result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media context": {
+      "main": [
+        [
+          {
+            "node": "Read account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read account": {
+      "main": [
+        [
+          {
+            "node": "Publish context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish context": {
+      "main": [
+        [
+          {
+            "node": "Read publication history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read publication history": {
+      "main": [
+        [
+          {
+            "node": "Prevent repeated publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prevent repeated publish": {
+      "main": [
+        [
+          {
+            "node": "Claim publication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim publication": {
+      "main": [
+        [
+          {
+            "node": "Save publication attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveExecutionProgress": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

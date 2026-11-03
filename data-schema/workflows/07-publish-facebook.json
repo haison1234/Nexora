@@ -1,0 +1,1243 @@
+{
+  "name": "07 - Publish Facebook",
+  "nodes": [
+    {
+      "id": "c6dca2e2-75b3-44f1-aeff-173a4f58ad81",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "cc877d17-f72f-4d50-b56b-9da7d3a45a3d",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "40529e73-4ef4-4b0e-b266-9588ad9eec14",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{\"brandId\":\"techviet\",\"brandName\":\"TechViet Daily\",\"brandBrief\":\"AI và tự động hóa cho chủ doanh nghiệp nhỏ tại Việt Nam. Gần gũi, rõ ràng, thực tế. Không bịa số liệu.\",\"model\":\"SELECT_OPENROUTER_MODEL\",\"fromEmail\":\"SET_SENDER_EMAIL\",\"toEmail\":\"SET_APPROVER_EMAIL\",\"cloudName\":\"SET_CLOUDINARY_CLOUD_NAME\",\"uploadPreset\":\"SET_UNSIGNED_UPLOAD_PRESET\",\"graphVersion\":\"v23.0\",\"kromossUrl\":\"http://127.0.0.1:8787\",\"maxVersions\":3}}];"
+      }
+    },
+    {
+      "id": "a5fcd58c-ca26-4c59-9c8b-c513016c5ee6",
+      "name": "Read posts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "757ba887-2bf8-43ec-a1cb-dc2ae86da6f2",
+      "name": "Select one post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Configuration').first().json; const now=Date.now(); const rows=$input.all().map(x=>x.json).filter(x=>x.postId && [\"APPROVED\"].includes(x.status) && x.platform==='FACEBOOK').filter(x=>Number.isFinite(Date.parse(x.scheduledAt)) && Date.parse(x.scheduledAt)<=now).sort((a,b)=>String(a.scheduledAt).localeCompare(String(b.scheduledAt))); return rows.slice(0,1).map(x=>({json:{...x,cfg}}));"
+      }
+    },
+    {
+      "id": "bc1c0504-6d56-498b-a8e2-afd01ccd5cb8",
+      "name": "Read version",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post versions"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $('Select one post').first().json.approvedVersionId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "64a99d97-8718-4d15-8361-0e89e162d665",
+      "name": "Version context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const post=$('Select one post').first().json; const version=$input.first().json; if(!version.versionId || version.postId!==post.postId) throw new Error('Post version is missing or belongs to another post'); return [{json:{...post,version}}];"
+      }
+    },
+    {
+      "id": "5fcd4d3e-a6ac-4851-9910-f79320f5b382",
+      "name": "Read media link",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post version media"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $json.version.versionId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "f9fff2e2-df80-48c0-aada-9b86a30a7c66",
+      "name": "Choose media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const rows=$input.all().map(x=>x.json).filter(x=>x.assetId).sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)); if(!rows.length) throw new Error('No media is linked to this version'); return [{json:{...$('Version context').first().json,assetId:rows[0].assetId}}];"
+      }
+    },
+    {
+      "id": "87fef627-6cab-4c76-adb9-85380ac730c8",
+      "name": "Read asset",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "media assets"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "assetId",
+              "condition": "eq",
+              "keyValue": "={{ $json.assetId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "e4a3af5b-4ecf-4b73-84c2-3baf2a104c85",
+      "name": "Media context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const asset=$input.first().json; if(asset.status!=='READY' || !/^https:\\/\\//.test(asset.publicUrl||'')) throw new Error('A READY public HTTPS image is required'); return [{json:{...$('Choose media').first().json,asset}}];"
+      }
+    },
+    {
+      "id": "87e67c0d-f15f-41f7-9e2a-cd37026ddefd",
+      "name": "Read account",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "social accounts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "accountId",
+              "condition": "eq",
+              "keyValue": "={{ $json.accountId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "ACTIVE"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "ed655582-ebe5-4408-98a0-54aee5e66e46",
+      "name": "Publish context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2880,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Media context').first().json;const account=$input.first().json;if(!account.externalAccountId||account.platform!==c.platform)throw new Error('Active platform account is missing');if(c.currentVersionId!==c.approvedVersionId)throw new Error('Approved version is stale');if(!Number.isFinite(Date.parse(c.scheduledAt))||Date.parse(c.scheduledAt)>Date.now())return [];return [{json:{...c,account,publicationId:c.postId+'-'+c.approvedVersionId,idempotencyKey:c.postId+'-'+c.approvedVersionId,caption:[c.version.caption,c.version.hashtags].filter(Boolean).join('\\n\\n')}}];"
+      }
+    },
+    {
+      "id": "caf94d55-dffe-4b01-a20e-551287626150",
+      "name": "Read publication history",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3120,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $json.postId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "f8c8c275-a252-4c9d-8362-ab2ed25b30bb",
+      "name": "Prevent repeated publish",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Publish context').first().json;const rows=$input.all().map(x=>x.json);if(rows.some(x=>x.publicationId&&['PUBLISHED','PUBLISHING','UNKNOWN','MANUAL_SENT'].includes(x.status)))return [];const previous=rows.find(x=>x.publicationId===c.publicationId);return [{json:{...c,attemptCount:Number(previous?.attemptCount||0)+1}}];"
+      }
+    },
+    {
+      "id": "24304797-de54-4224-be02-42b027cb8e38",
+      "name": "Claim publication",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3600,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $json.postId }}"
+            },
+            {
+              "keyName": "approvedVersionId",
+              "condition": "eq",
+              "keyValue": "={{ $json.approvedVersionId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "={{ $json.status }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "PUBLISHING"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "36aa881b-5077-4068-ae38-706973984ecb",
+      "name": "Save publication attempt",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "publicationId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.publicationId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "publicationId": "={{ $('Publish context').first().json.publicationId }}",
+            "postId": "={{ $('Publish context').first().json.postId }}",
+            "versionId": "={{ $('Publish context').first().json.approvedVersionId }}",
+            "accountId": "={{ $('Publish context').first().json.accountId }}",
+            "platform": "FACEBOOK",
+            "idempotencyKey": "={{ $('Publish context').first().json.idempotencyKey }}",
+            "status": "PUBLISHING",
+            "attemptCount": "={{ $('Prevent repeated publish').first().json.attemptCount }}",
+            "lastErrorCode": "",
+            "lastErrorMessage": ""
+          },
+          "schema": [
+            {
+              "id": "publicationId",
+              "displayName": "publicationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalPostId",
+              "displayName": "externalPostId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalContainerId",
+              "displayName": "externalContainerId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalUrl",
+              "displayName": "externalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attemptCount",
+              "displayName": "attemptCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorCode",
+              "displayName": "lastErrorCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorMessage",
+              "displayName": "lastErrorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "publishedAt",
+              "displayName": "publishedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "624c33d5-00a9-48fd-b637-5569990dab54",
+      "name": "Publish Facebook photo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4080,
+        300
+      ],
+      "parameters": {
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "neverError": true
+            }
+          }
+        },
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "method": "POST",
+        "url": "={{ $('Configuration').first().json.graphVersion ? 'https://graph.facebook.com/'+$('Configuration').first().json.graphVersion+'/'+$('Publish context').first().json.account.externalAccountId+'/photos' : '' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "url",
+              "value": "={{ $('Publish context').first().json.asset.publicUrl }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $('Publish context').first().json.caption }}"
+            }
+          ]
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "e27f8de2-61ae-4aea-8841-9d18bc87d3d7",
+      "name": "Interpret publish response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4320,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const r=$json;const id=r.post_id||r.id;const success=typeof id==='string'&&id.length>0;return [{json:{status:success?'PUBLISHED':r.error?.code?'FAILED':'UNKNOWN',externalPostId:success?id:'',externalUrl:success?'https://www.facebook.com/'+id:'',publishedAt:success?new Date().toISOString():'',lastErrorCode:success?'':String(r.error?.code||'UNKNOWN_RESULT'),lastErrorMessage:success?'':JSON.stringify(r.error||r).slice(0,1000)}}];"
+      }
+    },
+    {
+      "id": "66860735-e0fc-4352-8dd0-b5ef33bd13eb",
+      "name": "Save publish result",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4560,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "publications"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "publicationId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.publicationId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status }}",
+            "externalPostId": "={{ $json.externalPostId }}",
+            "externalUrl": "={{ $json.externalUrl }}",
+            "publishedAt": "={{ $json.publishedAt }}",
+            "lastErrorCode": "={{ $json.lastErrorCode }}",
+            "lastErrorMessage": "={{ $json.lastErrorMessage }}"
+          },
+          "schema": [
+            {
+              "id": "publicationId",
+              "displayName": "publicationId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "idempotencyKey",
+              "displayName": "idempotencyKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalPostId",
+              "displayName": "externalPostId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalContainerId",
+              "displayName": "externalContainerId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "externalUrl",
+              "displayName": "externalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attemptCount",
+              "displayName": "attemptCount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorCode",
+              "displayName": "lastErrorCode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "lastErrorMessage",
+              "displayName": "lastErrorMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "publishedAt",
+              "displayName": "publishedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6f66dc1e-3444-4206-b190-dec20d09b741",
+      "name": "Update post result",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4800,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $('Publish context').first().json.postId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "PUBLISHING"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.status==='PUBLISHED'?'PUBLISHED':$json.status==='FAILED'?'PUBLISH_FAILED':'PUBLISH_UNKNOWN' }}"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "12e4fb5e-5765-4f59-b8c6-d622c113a31c",
+      "name": "Send publish result",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        5040,
+        300
+      ],
+      "parameters": {
+        "operation": "send",
+        "fromEmail": "={{ $('Configuration').first().json.fromEmail }}",
+        "toEmail": "={{ $('Configuration').first().json.toEmail }}",
+        "subject": "={{ 'Kết quả đăng FACEBOOK: '+$('Publish context').first().json.postId }}",
+        "message": "={{ '<p>Trạng thái: '+$('Save publish result').first().json.status+'</p><p>Post ID: '+String($('Save publish result').first().json.externalPostId||'')+'</p><p>'+String($('Save publish result').first().json.lastErrorMessage||'').replaceAll('&','&amp;').replaceAll('<','&lt;')+'</p>' }}",
+        "emailFormat": "html",
+        "html": "={{ '<p>Trạng thái: '+$('Save publish result').first().json.status+'</p><p>Post ID: '+String($('Save publish result').first().json.externalPostId||'')+'</p><p>'+String($('Save publish result').first().json.lastErrorMessage||'').replaceAll('&','&amp;').replaceAll('<','&lt;')+'</p>' }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "webhookId": "4d9050bd-e88d-402d-a0eb-978266c97840"
+    },
+    {
+      "id": "b6165b3b-e955-4158-bfc0-3580c96b53f7",
+      "name": "Read setup guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "content": "## 07 - Publish Facebook\nRead README-VI.md before running.\nSet Configuration and credentials. Schedules start disabled.\nTable names must match the imported tables.\nDo not run concurrent executions for the same account.",
+        "height": 220,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Read posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read posts": {
+      "main": [
+        [
+          {
+            "node": "Select one post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select one post": {
+      "main": [
+        [
+          {
+            "node": "Read version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read version": {
+      "main": [
+        [
+          {
+            "node": "Version context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Version context": {
+      "main": [
+        [
+          {
+            "node": "Read media link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read media link": {
+      "main": [
+        [
+          {
+            "node": "Choose media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose media": {
+      "main": [
+        [
+          {
+            "node": "Read asset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read asset": {
+      "main": [
+        [
+          {
+            "node": "Media context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save publication attempt": {
+      "main": [
+        [
+          {
+            "node": "Publish Facebook photo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Facebook photo": {
+      "main": [
+        [
+          {
+            "node": "Interpret publish response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Interpret publish response": {
+      "main": [
+        [
+          {
+            "node": "Save publish result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save publish result": {
+      "main": [
+        [
+          {
+            "node": "Update post result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update post result": {
+      "main": [
+        [
+          {
+            "node": "Send publish result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media context": {
+      "main": [
+        [
+          {
+            "node": "Read account",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read account": {
+      "main": [
+        [
+          {
+            "node": "Publish context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish context": {
+      "main": [
+        [
+          {
+            "node": "Read publication history",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read publication history": {
+      "main": [
+        [
+          {
+            "node": "Prevent repeated publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prevent repeated publish": {
+      "main": [
+        [
+          {
+            "node": "Claim publication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim publication": {
+      "main": [
+        [
+          {
+            "node": "Save publication attempt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveExecutionProgress": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

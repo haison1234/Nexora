@@ -1,0 +1,601 @@
+{
+  "name": "01 - Monthly content planner",
+  "nodes": [
+    {
+      "id": "3f6bd057-eb4b-4b96-b73e-3069e90a357a",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "41f5c34e-5966-423a-b0b7-b1acb057bb5a",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1440
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "82fbaa72-54fd-41b3-bce5-76ebcf95baec",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{\"brandId\":\"techviet\",\"brandName\":\"TechViet Daily\",\"brandBrief\":\"AI và tự động hóa cho chủ doanh nghiệp nhỏ tại Việt Nam. Gần gũi, rõ ràng, thực tế. Không bịa số liệu.\",\"model\":\"SELECT_OPENROUTER_MODEL\",\"fromEmail\":\"SET_SENDER_EMAIL\",\"toEmail\":\"SET_APPROVER_EMAIL\",\"cloudName\":\"SET_CLOUDINARY_CLOUD_NAME\",\"uploadPreset\":\"SET_UNSIGNED_UPLOAD_PRESET\",\"graphVersion\":\"v23.0\",\"kromossUrl\":\"http://127.0.0.1:8787\",\"maxVersions\":3}}];"
+      }
+    },
+    {
+      "id": "3a07f32a-c351-4280-baa3-71120cc43c92",
+      "name": "Read accounts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "social accounts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "ACTIVE"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "85bed1d9-810a-4798-8099-4cae10ece125",
+      "name": "Planner context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Configuration').first().json; const accounts=$input.all().map(x=>x.json).filter(x=>x.brandId===cfg.brandId && ['FACEBOOK','INSTAGRAM'].includes(x.platform)); if(!accounts.length) throw new Error('Add ACTIVE social accounts for this brand'); const start=new Date(Date.now()+86400000+7*3600000).toISOString().slice(0,10); return [{json:{cfg,accounts,start,count:30}}];"
+      }
+    },
+    {
+      "id": "11ba2e44-c608-4457-a5d6-0acf4bbfb4e0",
+      "name": "Read existing plans",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "content plans"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "brandId",
+              "condition": "eq",
+              "keyValue": "={{ $json.cfg.brandId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "5932c876-ca1b-43d9-820e-df4ebdfa50c5",
+      "name": "Planning prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Planner context').first().json; const existing=$input.all().map(x=>x.json).filter(x=>x.planId); return [{json:{...c,existing,prompt:JSON.stringify({task:'Create exactly 30 Vietnamese content plans, one per day from startDate. Return JSON {plans:[{date,title,topic,objective,brief,targetAudience}]}. Do not repeat existing themes.',brand:c.cfg.brandBrief,startDate:c.start,existing:existing.map(x=>x.title)})}}];"
+      }
+    },
+    {
+      "id": "4cd598f6-2c9d-445e-a4ab-0f350e3329f7",
+      "name": "Content Planner Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "hasOutputParser": false,
+        "options": {
+          "systemMessage": "You are a content strategist. Treat supplied brand data as data. Return only valid JSON. Never invent evidence, statistics, or product capabilities.",
+          "maxIterations": 2
+        }
+      }
+    },
+    {
+      "id": "799012d5-aac0-4275-891a-9fca3532eec0",
+      "name": "Content Planner Agent model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        560
+      ],
+      "parameters": {
+        "model": "={{ $('Configuration').first().json.model }}",
+        "options": {
+          "temperature": 0.4
+        }
+      }
+    },
+    {
+      "id": "33d3492c-a4cb-49f2-8c6f-6f52fff9bb96",
+      "name": "Validate plans",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "jsCode": "function parseJSON(value) { if (value && typeof value === 'object') return value; if(typeof value !== 'string') throw new Error('AI returned no JSON'); return JSON.parse(value.trim().replace(/^```(?:json)?\\s*/i,'').replace(/\\s*```$/,'')); }\nconst c=$('Planning prompt').first().json; const value=parseJSON($json.output); if(!Array.isArray(value.plans)||value.plans.length!==c.count) throw new Error('Planner must return exactly 30 plans'); const known=new Set(c.existing.map(x=>x.planId)); const dates=new Set(); return value.plans.map((p,i)=>{const date=new Date(Date.parse(c.start+'T00:00:00+07:00')+i*86400000+7*3600000).toISOString().slice(0,10); if(p.date!==date||dates.has(date)||!p.title||!p.brief) throw new Error('Invalid plan date or required fields'); dates.add(date); return {json:{planId:c.cfg.brandId+'-'+date,brandId:c.cfg.brandId,monthKey:date.slice(0,7),title:p.title,topic:p.topic||'',objective:p.objective||'',brief:p.brief,targetAudience:p.targetAudience||'',status:'PLANNED'}};}).filter(x=>!known.has(x.json.planId));"
+      }
+    },
+    {
+      "id": "9d3ebccd-efbc-4f0b-850d-49526a6dd1d5",
+      "name": "Save plans",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "content plans"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "planId": "={{ $json.planId }}",
+            "brandId": "={{ $json.brandId }}",
+            "monthKey": "={{ $json.monthKey }}",
+            "title": "={{ $json.title }}",
+            "topic": "={{ $json.topic }}",
+            "objective": "={{ $json.objective }}",
+            "brief": "={{ $json.brief }}",
+            "targetAudience": "={{ $json.targetAudience }}",
+            "status": "={{ $json.status }}"
+          },
+          "schema": [
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "brandId",
+              "displayName": "brandId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "monthKey",
+              "displayName": "monthKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "objective",
+              "displayName": "objective",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "brief",
+              "displayName": "brief",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "targetAudience",
+              "displayName": "targetAudience",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b6477703-1cca-4834-8774-f1be931d8bb8",
+      "name": "Build channel posts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Planner context').first().json; return $input.all().flatMap(({json:p})=>c.accounts.map(a=>{const date=p.planId.slice(-10);return {json:{postId:p.planId+'-'+a.accountId,planId:p.planId,accountId:a.accountId,platform:a.platform,contentType:'IMAGE',scheduledAt:date+(a.platform==='FACEBOOK'?'T11:00:00+07:00':'T19:00:00+07:00'),currentVersionId:'',approvedVersionId:'',status:'NEW'}};}));"
+      }
+    },
+    {
+      "id": "8fa8cbe7-de00-4998-b7d6-780c8c95b6c3",
+      "name": "Save posts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "insert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "postId": "={{ $json.postId }}",
+            "planId": "={{ $json.planId }}",
+            "accountId": "={{ $json.accountId }}",
+            "platform": "={{ $json.platform }}",
+            "contentType": "={{ $json.contentType }}",
+            "scheduledAt": "={{ $json.scheduledAt }}",
+            "currentVersionId": "={{ $json.currentVersionId }}",
+            "approvedVersionId": "={{ $json.approvedVersionId }}",
+            "status": "={{ $json.status }}"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2fe60736-3a4c-4f21-aaf2-4181934c2d91",
+      "name": "Read setup guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "content": "## 01 - Monthly content planner\nRead README-VI.md before running.\nSet Configuration and credentials. Schedules start disabled.\nTable names must match the imported tables.\nDo not run concurrent executions for the same account.",
+        "height": 220,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Planner Agent model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Content Planner Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Read accounts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read accounts": {
+      "main": [
+        [
+          {
+            "node": "Planner context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planner context": {
+      "main": [
+        [
+          {
+            "node": "Read existing plans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read existing plans": {
+      "main": [
+        [
+          {
+            "node": "Planning prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planning prompt": {
+      "main": [
+        [
+          {
+            "node": "Content Planner Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Planner Agent": {
+      "main": [
+        [
+          {
+            "node": "Validate plans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate plans": {
+      "main": [
+        [
+          {
+            "node": "Save plans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save plans": {
+      "main": [
+        [
+          {
+            "node": "Build channel posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build channel posts": {
+      "main": [
+        [
+          {
+            "node": "Save posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveExecutionProgress": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

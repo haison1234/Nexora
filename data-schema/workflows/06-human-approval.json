@@ -1,0 +1,1125 @@
+{
+  "name": "06 - Email approval and Instagram music choice",
+  "nodes": [
+    {
+      "id": "92e0e035-4615-4b6a-b54e-1d6e1ca45026",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "f21ce304-b929-40b5-8246-e8933a15090d",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "9b44d646-25a4-4f75-86eb-c7d8eba44a02",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{\"brandId\":\"techviet\",\"brandName\":\"TechViet Daily\",\"brandBrief\":\"AI và tự động hóa cho chủ doanh nghiệp nhỏ tại Việt Nam. Gần gũi, rõ ràng, thực tế. Không bịa số liệu.\",\"model\":\"SELECT_OPENROUTER_MODEL\",\"fromEmail\":\"SET_SENDER_EMAIL\",\"toEmail\":\"SET_APPROVER_EMAIL\",\"cloudName\":\"SET_CLOUDINARY_CLOUD_NAME\",\"uploadPreset\":\"SET_UNSIGNED_UPLOAD_PRESET\",\"graphVersion\":\"v23.0\",\"kromossUrl\":\"http://127.0.0.1:8787\",\"maxVersions\":3}}];"
+      }
+    },
+    {
+      "id": "d2a4bab2-46b2-4dff-b639-70dc70865215",
+      "name": "Read posts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "f99960d9-70d3-450d-b6e5-5c3df4ea9a9c",
+      "name": "Select one post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Configuration').first().json; const now=Date.now(); const rows=$input.all().map(x=>x.json).filter(x=>x.postId && [\"AI_APPROVED\"].includes(x.status) ).filter(x=>true).sort((a,b)=>String(a.scheduledAt).localeCompare(String(b.scheduledAt))); return rows.slice(0,1).map(x=>({json:{...x,cfg}}));"
+      }
+    },
+    {
+      "id": "43ac93ad-ec0c-411a-9355-14d3367a31ee",
+      "name": "Read version",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post versions"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $('Select one post').first().json.currentVersionId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "da8841c8-a6cf-47f9-ba08-672e7e82d22c",
+      "name": "Version context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const post=$('Select one post').first().json; const version=$input.first().json; if(!version.versionId || version.postId!==post.postId) throw new Error('Post version is missing or belongs to another post'); return [{json:{...post,version}}];"
+      }
+    },
+    {
+      "id": "c0243f75-fcc0-4f04-9d80-31d3ec740912",
+      "name": "Read media link",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post version media"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $json.version.versionId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "1fe85679-8a2a-49b8-8b89-fa20bfbb1b57",
+      "name": "Choose media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const rows=$input.all().map(x=>x.json).filter(x=>x.assetId).sort((a,b)=>Number(a.sortOrder)-Number(b.sortOrder)); if(!rows.length) throw new Error('No media is linked to this version'); return [{json:{...$('Version context').first().json,assetId:rows[0].assetId}}];"
+      }
+    },
+    {
+      "id": "9022434a-62da-4cd2-bc08-34193f0187e3",
+      "name": "Read asset",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2160,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "media assets"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "assetId",
+              "condition": "eq",
+              "keyValue": "={{ $json.assetId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "ca01b340-bb1c-468f-bf7f-14b370d3e839",
+      "name": "Media context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const asset=$input.first().json; if(asset.status!=='READY' || !/^https:\\/\\//.test(asset.publicUrl||'')) throw new Error('A READY public HTTPS image is required'); return [{json:{...$('Choose media').first().json,asset}}];"
+      }
+    },
+    {
+      "id": "05c9a38c-285d-4769-b3f5-8681bba05f52",
+      "name": "Approval context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$json;if(c.cfg.fromEmail.startsWith('SET_')||c.cfg.toEmail.startsWith('SET_'))throw new Error('Set sender and approver email');return [{json:{...c,approvalId:c.version.versionId+'-approval',requestedAt:new Date().toISOString(),expiresAt:new Date(Date.now()+86400000).toISOString()}}];"
+      }
+    },
+    {
+      "id": "b6e9cb8c-12d9-42f0-a160-4bdc3ab0a9d3",
+      "name": "Claim approval",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2880,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $json.postId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "AI_APPROVED"
+            },
+            {
+              "keyName": "currentVersionId",
+              "condition": "eq",
+              "keyValue": "={{ $json.version.versionId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "WAITING_APPROVAL"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3d83cd8e-11b9-4443-8bf7-ff62fad7aea7",
+      "name": "Save pending approval",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3120,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "approval requests"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "approvalId",
+              "condition": "eq",
+              "keyValue": "={{ $('Approval context').first().json.approvalId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "approvalId": "={{ $('Approval context').first().json.approvalId }}",
+            "postId": "={{ $('Approval context').first().json.postId }}",
+            "versionId": "={{ $('Approval context').first().json.version.versionId }}",
+            "status": "PENDING",
+            "requestedTo": "={{ $('Configuration').first().json.toEmail }}",
+            "executionId": "={{ $execution.id }}",
+            "approvalUrl": "",
+            "requestedAt": "={{ $('Approval context').first().json.requestedAt }}",
+            "expiresAt": "={{ $('Approval context').first().json.expiresAt }}"
+          },
+          "schema": [
+            {
+              "id": "approvalId",
+              "displayName": "approvalId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requestedTo",
+              "displayName": "requestedTo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decidedBy",
+              "displayName": "decidedBy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "feedback",
+              "displayName": "feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "executionId",
+              "displayName": "executionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvalUrl",
+              "displayName": "approvalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requestedAt",
+              "displayName": "requestedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "expiresAt",
+              "displayName": "expiresAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decidedAt",
+              "displayName": "decidedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "90c1afcc-7630-4719-a3c3-4a3f8fd90596",
+      "name": "Send approval form",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3360,
+        300
+      ],
+      "parameters": {
+        "operation": "sendAndWait",
+        "fromEmail": "={{ $('Configuration').first().json.fromEmail }}",
+        "toEmail": "={{ $('Configuration').first().json.toEmail }}",
+        "subject": "={{ 'Duyệt bài '+$('Approval context').first().json.platform }}",
+        "message": "={{ '<p>'+$('Approval context').first().json.platform+'</p><pre>'+$('Approval context').first().json.version.caption.replaceAll('&','&amp;').replaceAll('<','&lt;')+'\\n'+$('Approval context').first().json.version.hashtags+'</pre><p><img width=\"450\" src=\"'+$('Approval context').first().json.asset.publicUrl+'\"></p><p>APPROVE_AUTO: duyệt và đăng tự động khi đến lịch. APPROVE_MUSIC: chỉ dành cho Instagram; nhận ảnh và caption qua email để tự chọn nhạc và đăng. REJECT: từ chối.</p>' }}",
+        "responseType": "customForm",
+        "defineForm": "json",
+        "jsonOutput": "={{ JSON.stringify([{fieldLabel:'decision',fieldType:'dropdown',requiredField:true,fieldOptions:{values:($('Approval context').first().json.platform==='INSTAGRAM'?['APPROVE_AUTO','APPROVE_MUSIC','REJECT']:['APPROVE_AUTO','REJECT']).map(option=>({option}))}},{fieldLabel:'feedback',fieldType:'textarea'}]) }}",
+        "options": {
+          "limitWaitTime": {
+            "values": {
+              "limitType": "afterTimeInterval",
+              "resumeAmount": 24,
+              "resumeUnit": "hours"
+            }
+          },
+          "appendAttribution": false
+        }
+      },
+      "webhookId": "b54bcb5f-7fd0-4585-bc5f-0aabc1668a14"
+    },
+    {
+      "id": "99c71dbc-75c1-404f-90a5-053f704f1016",
+      "name": "Validate human decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Approval context').first().json;const data=$json.data||{};const decision=data.decision;const expired=Date.now()>Date.parse(c.expiresAt);if(!expired&&!['APPROVE_AUTO','APPROVE_MUSIC','REJECT'].includes(decision))throw new Error('Missing or invalid approval choice');if(!expired&&decision==='APPROVE_MUSIC'&&c.platform!=='INSTAGRAM')throw new Error('Music choice is for Instagram only');return [{json:{...c,decision,approvalStatus:expired?'EXPIRED':decision==='REJECT'?'REJECTED':decision==='APPROVE_MUSIC'?'APPROVED_MANUAL':'APPROVED_AUTO',nextStatus:expired?'APPROVAL_EXPIRED':decision==='REJECT'?'REJECTED':decision==='APPROVE_MUSIC'?'MANUAL_READY':'APPROVED',feedback:String(data.feedback||''),decidedAt:new Date().toISOString()}}];"
+      }
+    },
+    {
+      "id": "8cf23e7f-713f-42ca-b975-36d845621c8e",
+      "name": "Recheck post version",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3840,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $json.postId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "971cb574-ef4e-4dde-b8eb-dc19c33239cb",
+      "name": "Reject stale decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Validate human decision').first().json;const p=$input.first().json;if(p.currentVersionId!==c.version.versionId||p.status!=='WAITING_APPROVAL')throw new Error('This approval is stale');return [{json:c}];"
+      }
+    },
+    {
+      "id": "5cfdad4d-9d31-44f9-a3c5-c03c47ca1c7a",
+      "name": "Save human decision",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4320,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "approval requests"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "approvalId",
+              "condition": "eq",
+              "keyValue": "={{ $json.approvalId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "PENDING"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $json.approvalStatus }}",
+            "feedback": "={{ $json.feedback }}",
+            "decidedBy": "={{ $('Configuration').first().json.toEmail }}",
+            "decidedAt": "={{ $json.decidedAt }}"
+          },
+          "schema": [
+            {
+              "id": "approvalId",
+              "displayName": "approvalId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requestedTo",
+              "displayName": "requestedTo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decidedBy",
+              "displayName": "decidedBy",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "feedback",
+              "displayName": "feedback",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "executionId",
+              "displayName": "executionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvalUrl",
+              "displayName": "approvalUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requestedAt",
+              "displayName": "requestedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "expiresAt",
+              "displayName": "expiresAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decidedAt",
+              "displayName": "decidedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f6a2b29c-0f1e-49bb-8829-4bcf389828df",
+      "name": "Apply approval",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4560,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $('Approval context').first().json.postId }}"
+            },
+            {
+              "keyName": "currentVersionId",
+              "condition": "eq",
+              "keyValue": "={{ $('Approval context').first().json.version.versionId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "WAITING_APPROVAL"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "={{ $('Reject stale decision').first().json.nextStatus }}",
+            "approvedVersionId": "={{ $('Reject stale decision').first().json.nextStatus==='APPROVED'||$('Reject stale decision').first().json.nextStatus==='MANUAL_READY'?$('Reject stale decision').first().json.version.versionId:'' }}"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "94ed73e0-6eec-40f7-9e9d-767d0e964583",
+      "name": "Read setup guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "content": "## 06 - Email approval and Instagram music choice\nRead README-VI.md before running.\nSet Configuration and credentials. Schedules start disabled.\nTable names must match the imported tables.\nDo not run concurrent executions for the same account.",
+        "height": 220,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Read posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read posts": {
+      "main": [
+        [
+          {
+            "node": "Select one post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select one post": {
+      "main": [
+        [
+          {
+            "node": "Read version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read version": {
+      "main": [
+        [
+          {
+            "node": "Version context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Version context": {
+      "main": [
+        [
+          {
+            "node": "Read media link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read media link": {
+      "main": [
+        [
+          {
+            "node": "Choose media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose media": {
+      "main": [
+        [
+          {
+            "node": "Read asset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read asset": {
+      "main": [
+        [
+          {
+            "node": "Media context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Media context": {
+      "main": [
+        [
+          {
+            "node": "Approval context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval context": {
+      "main": [
+        [
+          {
+            "node": "Claim approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claim approval": {
+      "main": [
+        [
+          {
+            "node": "Save pending approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save pending approval": {
+      "main": [
+        [
+          {
+            "node": "Send approval form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send approval form": {
+      "main": [
+        [
+          {
+            "node": "Validate human decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate human decision": {
+      "main": [
+        [
+          {
+            "node": "Recheck post version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recheck post version": {
+      "main": [
+        [
+          {
+            "node": "Reject stale decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reject stale decision": {
+      "main": [
+        [
+          {
+            "node": "Save human decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save human decision": {
+      "main": [
+        [
+          {
+            "node": "Apply approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveExecutionProgress": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

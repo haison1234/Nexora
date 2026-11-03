@@ -1,0 +1,785 @@
+{
+  "name": "04 - Kromoss image and public storage",
+  "nodes": [
+    {
+      "id": "af545a76-c4c8-4809-a30c-f1ff94487d4b",
+      "name": "Run manually",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "c74f8451-6784-4b0e-a04f-9ed32f2da2e2",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "disabled": true
+    },
+    {
+      "id": "b13e9c66-5c53-4d9e-80c5-c7ef6a587c27",
+      "name": "Configuration",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "return [{json:{\"brandId\":\"techviet\",\"brandName\":\"TechViet Daily\",\"brandBrief\":\"AI và tự động hóa cho chủ doanh nghiệp nhỏ tại Việt Nam. Gần gũi, rõ ràng, thực tế. Không bịa số liệu.\",\"model\":\"SELECT_OPENROUTER_MODEL\",\"fromEmail\":\"SET_SENDER_EMAIL\",\"toEmail\":\"SET_APPROVER_EMAIL\",\"cloudName\":\"SET_CLOUDINARY_CLOUD_NAME\",\"uploadPreset\":\"SET_UNSIGNED_UPLOAD_PRESET\",\"graphVersion\":\"v23.0\",\"kromossUrl\":\"http://127.0.0.1:8787\",\"maxVersions\":3}}];"
+      }
+    },
+    {
+      "id": "b1a85018-2b83-4013-abbf-7f3f3f8b92a4",
+      "name": "Read posts",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": []
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "a36a797a-ab31-47a0-a8f6-2e5abcea800e",
+      "name": "Select one post",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const cfg=$('Configuration').first().json; const now=Date.now(); const rows=$input.all().map(x=>x.json).filter(x=>x.postId && [\"DRAFT\"].includes(x.status) ).filter(x=>true).sort((a,b)=>String(a.scheduledAt).localeCompare(String(b.scheduledAt))); return rows.slice(0,1).map(x=>({json:{...x,cfg}}));"
+      }
+    },
+    {
+      "id": "a5ddac51-040d-445c-9102-33d501e84b18",
+      "name": "Read version",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post versions"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $json.currentVersionId }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "id": "a8aa6646-dcdb-40cb-8310-c0afd7e9f484",
+      "name": "Image request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Select one post').first().json;const v=$input.first().json;if(!v.imagePrompt||v.postId!==c.postId)throw new Error('Valid image prompt is required'); if(c.cfg.cloudName.startsWith('SET_')||c.cfg.uploadPreset.startsWith('SET_'))throw new Error('Set Cloudinary cloudName and unsigned uploadPreset'); return [{json:{...c,version:v,assetId:v.versionId+'-image',seed:42,width:512,height:512,steps:10}}];"
+      }
+    },
+    {
+      "id": "5d6c823a-a1af-4789-aaec-a5138db0d577",
+      "name": "Generate PNG",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "options": {
+          "timeout": 900000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data",
+              "fullResponse": true
+            }
+          }
+        },
+        "method": "POST",
+        "url": "={{ $('Configuration').first().json.kromossUrl+'/generate' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({prompt:$json.version.imagePrompt,width:$json.width,height:$json.height,steps:$json.steps,seed:$json.seed,guidance_scale:3}) }}"
+      }
+    },
+    {
+      "id": "52a6bed5-9340-4d96-be91-ae5aec8c970a",
+      "name": "Preserve image metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const item=$input.first();if(!item.binary?.data)throw new Error('Kromoss returned no image');const c=$('Image request').first().json;return [{json:{...c,localPath:item.json.headers?.['x-output-path']||''},binary:item.binary}];"
+      }
+    },
+    {
+      "id": "332c3109-88e8-4ed9-a58d-50415f4ec4d5",
+      "name": "Upload image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        300
+      ],
+      "parameters": {
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "method": "POST",
+        "url": "={{ 'https://api.cloudinary.com/v1_1/'+$json.cfg.cloudName+'/image/upload' }}",
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "upload_preset",
+              "value": "={{ $json.cfg.uploadPreset }}"
+            },
+            {
+              "name": "public_id",
+              "value": "={{ $json.assetId }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e4badd73-e319-4bc7-8bbf-6b6ed195ccac",
+      "name": "Validate stored image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const c=$('Preserve image metadata').first().json;const a=$json;if(!a.secure_url||!a.public_id||!a.width||!a.height)throw new Error('Cloudinary returned incomplete image data');if(!/^https:\\/\\/res\\.cloudinary\\.com\\//.test(a.secure_url)||!a.secure_url.includes('/upload/'))throw new Error('Unexpected Cloudinary delivery URL');const publicUrl=a.secure_url.replace('/upload/','/upload/f_jpg,q_90/');return [{json:{assetId:c.assetId,storageProvider:'CLOUDINARY',storageKey:a.public_id,localPath:c.localPath,publicUrl,fileName:c.assetId+'.jpg',mimeType:'image/jpeg',width:a.width,height:a.height,sizeBytes:a.bytes,prompt:c.version.imagePrompt,modelName:'lodestones/Kromoss',seed:c.seed,status:'READY'}}];"
+      }
+    },
+    {
+      "id": "ad955eb3-b663-41c4-a859-c9c8e0e48f7a",
+      "name": "Save asset",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "media assets"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "assetId",
+              "condition": "eq",
+              "keyValue": "={{ $json.assetId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "assetId": "={{ $json.assetId }}",
+            "storageProvider": "={{ $json.storageProvider }}",
+            "storageKey": "={{ $json.storageKey }}",
+            "localPath": "={{ $json.localPath }}",
+            "publicUrl": "={{ $json.publicUrl }}",
+            "fileName": "={{ $json.fileName }}",
+            "mimeType": "={{ $json.mimeType }}",
+            "width": "={{ $json.width }}",
+            "height": "={{ $json.height }}",
+            "sizeBytes": "={{ $json.sizeBytes }}",
+            "prompt": "={{ $json.prompt }}",
+            "modelName": "={{ $json.modelName }}",
+            "seed": "={{ $json.seed }}",
+            "status": "={{ $json.status }}"
+          },
+          "schema": [
+            {
+              "id": "assetId",
+              "displayName": "assetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "storageProvider",
+              "displayName": "storageProvider",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "storageKey",
+              "displayName": "storageKey",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "localPath",
+              "displayName": "localPath",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "publicUrl",
+              "displayName": "publicUrl",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fileName",
+              "displayName": "fileName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mimeType",
+              "displayName": "mimeType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "width",
+              "displayName": "width",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "height",
+              "displayName": "height",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sizeBytes",
+              "displayName": "sizeBytes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "prompt",
+              "displayName": "prompt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "modelName",
+              "displayName": "modelName",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "seed",
+              "displayName": "seed",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "6690f949-7733-45bc-b521-99ffede9ab44",
+      "name": "Link version to asset",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        2880,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "post version media"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "versionId",
+              "condition": "eq",
+              "keyValue": "={{ $('Image request').first().json.version.versionId }}"
+            },
+            {
+              "keyName": "assetId",
+              "condition": "eq",
+              "keyValue": "={{ $json.assetId }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "versionId": "={{ $('Image request').first().json.version.versionId }}",
+            "assetId": "={{ $json.assetId }}",
+            "sortOrder": 0,
+            "altText": "={{ $('Image request').first().json.version.imagePrompt }}"
+          },
+          "schema": [
+            {
+              "id": "versionId",
+              "displayName": "versionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "assetId",
+              "displayName": "assetId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "sortOrder",
+              "displayName": "sortOrder",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "altText",
+              "displayName": "altText",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9cde5cd8-fc6b-4bc7-b7ca-f3629b7ece62",
+      "name": "Queue review",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        3120,
+        300
+      ],
+      "parameters": {
+        "resource": "row",
+        "operation": "update",
+        "dataTableId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "posts"
+        },
+        "matchType": "allConditions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "postId",
+              "condition": "eq",
+              "keyValue": "={{ $('Image request').first().json.postId }}"
+            },
+            {
+              "keyName": "currentVersionId",
+              "condition": "eq",
+              "keyValue": "={{ $('Image request').first().json.version.versionId }}"
+            },
+            {
+              "keyName": "status",
+              "condition": "eq",
+              "keyValue": "DRAFT"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "READY_REVIEW"
+          },
+          "schema": [
+            {
+              "id": "postId",
+              "displayName": "postId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "planId",
+              "displayName": "planId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "accountId",
+              "displayName": "accountId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "platform",
+              "displayName": "platform",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "contentType",
+              "displayName": "contentType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "scheduledAt",
+              "displayName": "scheduledAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currentVersionId",
+              "displayName": "currentVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approvedVersionId",
+              "displayName": "approvedVersionId",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "50fae6fa-6487-41ec-a48d-d51900686863",
+      "name": "Read setup guide",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -100
+      ],
+      "parameters": {
+        "content": "## 04 - Kromoss image and public storage\nRead README-VI.md before running.\nSet Configuration and credentials. Schedules start disabled.\nTable names must match the imported tables.\nDo not run concurrent executions for the same account.",
+        "height": 220,
+        "width": 420
+      }
+    }
+  ],
+  "connections": {
+    "Run manually": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "Configuration",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration": {
+      "main": [
+        [
+          {
+            "node": "Read posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read posts": {
+      "main": [
+        [
+          {
+            "node": "Select one post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select one post": {
+      "main": [
+        [
+          {
+            "node": "Read version",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read version": {
+      "main": [
+        [
+          {
+            "node": "Image request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Image request": {
+      "main": [
+        [
+          {
+            "node": "Generate PNG",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate PNG": {
+      "main": [
+        [
+          {
+            "node": "Preserve image metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preserve image metadata": {
+      "main": [
+        [
+          {
+            "node": "Upload image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload image": {
+      "main": [
+        [
+          {
+            "node": "Validate stored image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate stored image": {
+      "main": [
+        [
+          {
+            "node": "Save asset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save asset": {
+      "main": [
+        [
+          {
+            "node": "Link version to asset",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Link version to asset": {
+      "main": [
+        [
+          {
+            "node": "Queue review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Ho_Chi_Minh",
+    "saveExecutionProgress": true
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
