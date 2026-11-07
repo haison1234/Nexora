@@ -58,6 +58,7 @@ erDiagram
   boolean archived
   datetime_3_ createdAt
   varchar_36_ departmentId FK
+  TEXT expertiseTags
   varchar_36_ id PK
   varchar_36_ managerMemberId FK
   varchar_128_ name

@@ -17,13 +17,20 @@ Auto-generated from the SQLite migrations in @n8n/db. Do not edit by hand.
 | [agent_chat_subscriptions](agent_chat_subscriptions.md) | 6 |  | table |
 | [agent_checkpoints](agent_checkpoints.md) | 7 |  | table |
 | [agent_credential_dependency](agent_credential_dependency.md) | 3 |  | table |
+| [agent_department_consultation_invocation](agent_department_consultation_invocation.md) | 32 |  | table |
+| [agent_department_consultation_invocation_gate](agent_department_consultation_invocation_gate.md) | 9 |  | table |
+| [agent_department_meeting_invocation](agent_department_meeting_invocation.md) | 33 |  | table |
+| [agent_department_meeting_invocation_gate](agent_department_meeting_invocation_gate.md) | 9 |  | table |
+| [agent_department_stop_receipt](agent_department_stop_receipt.md) | 12 |  | table |
+| [agent_department_workflow_event](agent_department_workflow_event.md) | 12 |  | table |
+| [agent_department_workflow_input](agent_department_workflow_input.md) | 9 |  | table |
 | [agent_eval_dataset](agent_eval_dataset.md) | 10 |  | table |
 | [agent_eval_rating](agent_eval_rating.md) | 8 |  | table |
 | [agent_eval_result](agent_eval_result.md) | 16 |  | table |
 | [agent_eval_run](agent_eval_run.md) | 14 |  | table |
 | [agent_execution](agent_execution.md) | 28 |  | table |
 | [agent_execution_message_links](agent_execution_message_links.md) | 5 |  | table |
-| [agent_execution_threads](agent_execution_threads.md) | 20 |  | table |
+| [agent_execution_threads](agent_execution_threads.md) | 21 |  | table |
 | [agent_file_grants](agent_file_grants.md) | 4 |  | table |
 | [agent_files](agent_files.md) | 10 |  | table |
 | [agent_history](agent_history.md) | 11 |  | table |
@@ -57,19 +64,41 @@ Auto-generated from the SQLite migrations in @n8n/db. Do not edit by hand.
 | [ai_department_executor_binding](ai_department_executor_binding.md) | 7 |  | table |
 | [ai_department_executor_binding_revision](ai_department_executor_binding_revision.md) | 7 |  | table |
 | [ai_department_goal](ai_department_goal.md) | 12 |  | table |
-| [ai_department_member](ai_department_member.md) | 10 |  | table |
+| [ai_department_meeting](ai_department_meeting.md) | 22 |  | table |
+| [ai_department_meeting_action_item](ai_department_meeting_action_item.md) | 19 |  | table |
+| [ai_department_meeting_activity](ai_department_meeting_activity.md) | 11 |  | table |
+| [ai_department_meeting_context](ai_department_meeting_context.md) | 10 |  | table |
+| [ai_department_meeting_contribution](ai_department_meeting_contribution.md) | 10 |  | table |
+| [ai_department_meeting_decision](ai_department_meeting_decision.md) | 12 |  | table |
+| [ai_department_meeting_invocation](ai_department_meeting_invocation.md) | 24 |  | table |
+| [ai_department_meeting_minutes](ai_department_meeting_minutes.md) | 14 |  | table |
+| [ai_department_meeting_participant](ai_department_meeting_participant.md) | 15 |  | table |
+| [ai_department_meeting_source](ai_department_meeting_source.md) | 12 |  | table |
+| [ai_department_member](ai_department_member.md) | 11 |  | table |
 | [ai_department_work_activity](ai_department_work_activity.md) | 11 |  | table |
-| [ai_department_work_attempt](ai_department_work_attempt.md) | 24 |  | table |
-| [ai_department_work_claim](ai_department_work_claim.md) | 11 |  | table |
+| [ai_department_work_attempt](ai_department_work_attempt.md) | 33 |  | table |
+| [ai_department_work_claim](ai_department_work_claim.md) | 12 |  | table |
 | [ai_department_work_dispatch_intent](ai_department_work_dispatch_intent.md) | 9 |  | table |
 | [ai_department_work_eligibility](ai_department_work_eligibility.md) | 13 |  | table |
-| [ai_department_work_item](ai_department_work_item.md) | 14 |  | table |
+| [ai_department_work_handoff_intent](ai_department_work_handoff_intent.md) | 18 |  | table |
+| [ai_department_work_help_request](ai_department_work_help_request.md) | 25 |  | table |
+| [ai_department_work_help_response](ai_department_work_help_response.md) | 15 |  | table |
+| [ai_department_work_item](ai_department_work_item.md) | 19 |  | table |
 | [ai_department_work_owner_event_receipt](ai_department_work_owner_event_receipt.md) | 14 |  | table |
 | [ai_department_work_relationship](ai_department_work_relationship.md) | 8 |  | table |
-| [ai_department_work_review_decision](ai_department_work_review_decision.md) | 10 |  | table |
+| [ai_department_work_release_intent](ai_department_work_release_intent.md) | 13 |  | table |
+| [ai_department_work_review_decision](ai_department_work_review_decision.md) | 13 |  | table |
+| [ai_department_work_review_policy_revision](ai_department_work_review_policy_revision.md) | 9 |  | table |
+| [ai_department_work_review_round](ai_department_work_review_round.md) | 15 |  | table |
+| [ai_department_work_review_stage_decision](ai_department_work_review_stage_decision.md) | 14 |  | table |
+| [ai_department_work_submitted_result](ai_department_work_submitted_result.md) | 11 |  | table |
 | [ai_department_work_transition](ai_department_work_transition.md) | 12 |  | table |
 | [ai_department_work_wake_intent](ai_department_work_wake_intent.md) | 8 |  | table |
-| [ai_department_work_wake_lane](ai_department_work_wake_lane.md) | 9 |  | table |
+| [ai_department_work_wake_lane](ai_department_work_wake_lane.md) | 10 |  | table |
+| [ai_department_workflow_capability](ai_department_workflow_capability.md) | 13 |  | table |
+| [ai_department_workflow_capability_revision](ai_department_workflow_capability_revision.md) | 11 |  | table |
+| [ai_department_workflow_invocation](ai_department_workflow_invocation.md) | 23 |  | table |
+| [ai_department_workflow_invocation_receipt](ai_department_workflow_invocation_receipt.md) | 13 |  | table |
 | [ai_preference](ai_preference.md) | 8 |  | table |
 | [annotation_tag_entity](annotation_tag_entity.md) | 4 |  | table |
 | [app](app.md) | 9 |  | table |
@@ -221,6 +250,14 @@ erDiagram
 "agent_checkpoints" }o--o| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_credential_dependency" |o--|| "credentials_entity" : "FOREIGN KEY (credentialId) REFERENCES credentials_entity (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_credential_dependency" |o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "agents" : "FOREIGN KEY (executorId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "ai_department_member" : "FOREIGN KEY (recipientMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "ai_department_member" : "FOREIGN KEY (requesterMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (sourceAttemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "ai_department_work_help_request" : "FOREIGN KEY (helpRequestId) REFERENCES ai_department_work_help_request (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_stop_receipt" }o--|| "agent_execution_threads" : "FOREIGN KEY (threadId) REFERENCES agent_execution_threads (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_eval_dataset" }o--o| "user" : "FOREIGN KEY (createdById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "agent_eval_dataset" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_eval_rating" }o--o| "user" : "FOREIGN KEY (ratedById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
@@ -232,10 +269,10 @@ erDiagram
 "agent_execution" }o--o| "agent_execution" : "FOREIGN KEY (parentExecutionId) REFERENCES agent_execution (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "agent_execution_message_links" |o--|| "agents_messages" : "FOREIGN KEY (messageId) REFERENCES agents_messages (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_execution_message_links" |o--|| "agent_execution" : "FOREIGN KEY (executionId) REFERENCES agent_execution (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
-"agent_execution_threads" }o--o| "user" : "FOREIGN KEY (ownerId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
-"agent_execution_threads" }o--|| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
-"agent_execution_threads" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_execution_threads" }o--o| "agent_history" : "FOREIGN KEY (taskVersionId) REFERENCES agent_history (versionId) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"agent_execution_threads" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_execution_threads" }o--|| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_execution_threads" }o--o| "user" : "FOREIGN KEY (ownerId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "agent_file_grants" |o--|| "agent_chat_attachments" : "FOREIGN KEY (attachmentId) REFERENCES agent_chat_attachments (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_files" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_history" }o--o| "user" : "FOREIGN KEY (publishedById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
@@ -296,31 +333,89 @@ erDiagram
 "ai_department_goal" }o--o| "ai_department_member" : "FOREIGN KEY (ownerMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_department_goal" }o--o| "ai_department_goal" : "FOREIGN KEY (parentId) REFERENCES ai_department_goal (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_department_goal" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting" }o--|| "ai_department_member" : "FOREIGN KEY (facilitatorMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE"
+"ai_department_meeting" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting" }o--|| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_action_item" }o--o| "ai_department_member" : "FOREIGN KEY (assigneeMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_meeting_action_item" }o--|| "ai_department_meeting_minutes" : "FOREIGN KEY (minutesId) REFERENCES ai_department_meeting_minutes (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_action_item" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_activity" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_context" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_context" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_contribution" }o--|| "ai_department_meeting_invocation" : "FOREIGN KEY (invocationId) REFERENCES ai_department_meeting_invocation (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_contribution" }o--|| "ai_department_meeting_participant" : "FOREIGN KEY (participantId) REFERENCES ai_department_meeting_participant (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_contribution" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_decision" }o--|| "ai_department_meeting_minutes" : "FOREIGN KEY (minutesId) REFERENCES ai_department_meeting_minutes (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_decision" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_invocation" }o--o| "ai_department_meeting_invocation" : "FOREIGN KEY (retryOfInvocationId) REFERENCES ai_department_meeting_invocation (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_meeting_invocation" }o--|| "ai_department_member" : "FOREIGN KEY (memberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE"
+"ai_department_meeting_invocation" }o--|| "ai_department_meeting_participant" : "FOREIGN KEY (participantId) REFERENCES ai_department_meeting_participant (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_invocation" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_minutes" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_participant" }o--|| "ai_department_member" : "FOREIGN KEY (memberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE"
+"ai_department_meeting_participant" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_source" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_meeting_source" }o--|| "ai_department_meeting" : "FOREIGN KEY (meetingId) REFERENCES ai_department_meeting (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_member" }o--o| "ai_department_member" : "FOREIGN KEY (managerMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_department_member" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_activity" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
-"ai_department_work_attempt" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_attempt" }o--|| "ai_department_member" : "FOREIGN KEY (memberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE"
+"ai_department_work_attempt" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_claim" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_claim" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_dispatch_intent" |o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_eligibility" }o--|| "ai_department_member" : "FOREIGN KEY (memberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_eligibility" |o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
-"ai_department_work_item" }o--o| "ai_department_work_attempt" : "FOREIGN KEY (currentAttemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
-"ai_department_work_item" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
-"ai_department_work_item" }o--o| "ai_department_goal" : "FOREIGN KEY (goalId) REFERENCES ai_department_goal (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_handoff_intent" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_request" }o--o| "user" : "FOREIGN KEY (recipientUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_request" }o--|| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_request" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_request" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_request" }o--|| "ai_department_member" : "FOREIGN KEY (requesterMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_request" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (sourceAttemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_request" }o--o| "user" : "FOREIGN KEY (initiatingUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_request" }o--o| "ai_department_member" : "FOREIGN KEY (recipientMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_response" }o--o| "ai_department_work_attempt" : "FOREIGN KEY (sourceAttemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_response" }o--o| "ai_department_member" : "FOREIGN KEY (responderMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_response" }o--o| "user" : "FOREIGN KEY (responderUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_response" }o--|| "ai_department_work_activity" : "FOREIGN KEY (activityId) REFERENCES ai_department_work_activity (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_response" }o--|| "ai_department_work_help_request" : "FOREIGN KEY (helpRequestId) REFERENCES ai_department_work_help_request (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_response" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_response" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_help_response" }o--|| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_item" }o--o| "ai_department_member" : "FOREIGN KEY (assigneeMemberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_item" }o--o| "ai_department_goal" : "FOREIGN KEY (goalId) REFERENCES ai_department_goal (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_item" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_item" }o--o| "ai_department_work_attempt" : "FOREIGN KEY (currentAttemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_item" }o--o| "user" : "FOREIGN KEY (assignedByUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_department_work_owner_event_receipt" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_owner_event_receipt" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_relationship" }o--|| "ai_department_work_item" : "FOREIGN KEY (relatedWorkId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_relationship" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_relationship" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
-"ai_department_work_review_decision" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE"
+"ai_department_work_release_intent" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_review_decision" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_review_decision" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE"
+"ai_department_work_review_policy_revision" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_review_round" }o--o| "ai_department_work_review_policy_revision" : "FOREIGN KEY (policyRevisionId) REFERENCES ai_department_work_review_policy_revision (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_review_round" }o--|| "ai_department_work_submitted_result" : "FOREIGN KEY (resultId) REFERENCES ai_department_work_submitted_result (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_review_round" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_review_round" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_review_stage_decision" }o--|| "ai_department_work_submitted_result" : "FOREIGN KEY (resultId) REFERENCES ai_department_work_submitted_result (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_review_stage_decision" }o--|| "ai_department_work_review_round" : "FOREIGN KEY (roundId) REFERENCES ai_department_work_review_round (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_submitted_result" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_work_submitted_result" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_transition" }o--o| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_department_work_transition" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_wake_intent" |o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_wake_lane" |o--|| "ai_department_member" : "FOREIGN KEY (memberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_workflow_capability" }o--|| "ai_department_member" : "FOREIGN KEY (memberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_workflow_capability" }o--|| "ai_department" : "FOREIGN KEY (departmentId) REFERENCES ai_department (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_workflow_capability_revision" }o--|| "ai_department_workflow_capability" : "FOREIGN KEY (capabilityId) REFERENCES ai_department_workflow_capability (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_workflow_invocation" }o--|| "ai_department_workflow_capability" : "FOREIGN KEY (capabilityId) REFERENCES ai_department_workflow_capability (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE"
+"ai_department_workflow_invocation" }o--|| "ai_department_work_attempt" : "FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_workflow_invocation" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"ai_department_workflow_invocation_receipt" }o--|| "ai_department_workflow_invocation" : "FOREIGN KEY (invocationId) REFERENCES ai_department_workflow_invocation (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_preference" }o--o| "user" : "FOREIGN KEY (createdById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_preference" }o--o| "project" : "FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_preference" }o--o| "user" : "FOREIGN KEY (userId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
@@ -625,6 +720,136 @@ erDiagram
   datetime_3_ createdAt
   varchar_36_ credentialId PK
 }
+"agent_department_consultation_invocation" {
+  varchar actorId
+  INTEGER bindingVersion
+  varchar_64_ commandKey
+  varchar_64_ contextHash
+  varchar_255_ contextRef
+  datetime_3_ createdAt
+  datetime_3_ deadlineAt
+  varchar_36_ departmentId FK
+  varchar_36_ executorId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id PK
+  varchar_64_ inputHash
+  TEXT inputText
+  varchar_36_ invocationId
+  INTEGER maxOutputChars
+  INTEGER maxOutputTokens
+  varchar_16_ outcome
+  varchar_36_ projectId FK
+  varchar_36_ recipientMemberId FK
+  varchar_36_ requesterMemberId FK
+  varchar_64_ resultHash
+  TEXT resultText
+  varchar_64_ safeErrorCode
+  varchar_64_ sequence
+  varchar_36_ sourceAttemptId FK
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  varchar_64_ stopPayloadHash
+  datetime_3_ stopRequestedAt
+  datetime_3_ terminalAt
+  varchar_128_ threadId
+  datetime_3_ updatedAt
+}
+"agent_department_consultation_invocation_gate" {
+  varchar_36_ cancelCommandId
+  varchar_64_ cancelPayloadHash
+  varchar_64_ commandKey
+  datetime_3_ createdAt
+  varchar_64_ inputHash
+  varchar_36_ invocationId PK
+  varchar_36_ projectId PK
+  varchar_16_ state
+  datetime_3_ updatedAt
+}
+"agent_department_meeting_invocation" {
+  varchar actorId
+  INTEGER bindingVersion
+  varchar_255_ contextRef
+  datetime_3_ createdAt
+  datetime_3_ deadlineAt
+  varchar_36_ departmentId
+  varchar_36_ executorId
+  varchar_36_ id PK
+  varchar_64_ inputHash
+  TEXT inputText
+  varchar_36_ invocationId
+  INTEGER maxOutputChars
+  INTEGER maxOutputTokens
+  varchar_36_ meetingId
+  varchar_36_ memberId
+  varchar_16_ outcome
+  varchar_36_ participantId
+  varchar_36_ projectId
+  varchar_64_ requestKey
+  varchar_64_ resultHash
+  TEXT resultText
+  varchar_16_ round
+  varchar_64_ safeErrorCode
+  varchar_64_ sequence
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  varchar_64_ stopPayloadHash
+  datetime_3_ stopRequestedAt
+  datetime_3_ terminalAt
+  varchar_128_ threadId
+  varchar_32_ toolPolicy
+  varchar_64_ toolPolicyVersion
+  datetime_3_ updatedAt
+}
+"agent_department_meeting_invocation_gate" {
+  varchar_36_ cancelCommandId
+  varchar_64_ cancelPayloadHash
+  datetime_3_ createdAt
+  varchar_64_ inputHash
+  varchar_36_ invocationId PK
+  varchar_36_ projectId PK
+  varchar_64_ requestKey
+  varchar_16_ state
+  datetime_3_ updatedAt
+}
+"agent_department_stop_receipt" {
+  varchar actorId
+  varchar_36_ agentId
+  varchar_36_ commandId PK
+  datetime_3_ confirmedAt
+  datetime_3_ createdAt
+  varchar_36_ ownerExecutionRef
+  varchar_64_ payloadHash
+  varchar_36_ projectId
+  varchar_24_ reason
+  varchar_16_ status
+  varchar_128_ threadId FK
+  datetime_3_ updatedAt
+}
+"agent_department_workflow_event" {
+  varchar_36_ actualWorkflowVersion
+  varchar_16_ childState
+  datetime_3_ createdAt
+  datetime_3_ deliveredAt
+  varchar_36_ eventId
+  INTEGER id
+  varchar_36_ invocationId
+  datetime_3_ occurredAt
+  varchar_36_ ownerExecutionRef
+  varchar_36_ projectId
+  varchar_255_ retryOfExecutionRef
+  datetime_3_ updatedAt
+}
+"agent_department_workflow_input" {
+  datetime_3_ createdAt
+  TEXT encryptedDispatchData
+  TEXT encryptedInputs
+  varchar_36_ id PK
+  varchar_64_ inputHash
+  varchar_255_ inputsRef
+  varchar_36_ invocationId
+  varchar_36_ projectId
+  datetime_3_ updatedAt
+}
 "agent_eval_dataset" {
   varchar_36_ agentId FK
   TEXT columnMapping
@@ -723,6 +948,7 @@ erDiagram
   varchar_36_ agentId FK
   varchar_255_ agentName
   datetime_3_ createdAt
+  INTEGER departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id PK
   varchar ownerId FK
@@ -1068,10 +1294,180 @@ erDiagram
   datetime_3_ updatedAt
   INTEGER version
 }
+"ai_department_meeting" {
+  TEXT absenceSnapshots
+  varchar_16_ collectionCloseReason
+  datetime_3_ collectionClosedAt
+  datetime_3_ collectionDeadlineAt
+  datetime_3_ completedAt
+  datetime_3_ createdAt
+  varchar createdBy
+  varchar_36_ departmentId FK
+  TEXT desiredOutcome
+  varchar executionActorId
+  varchar_36_ facilitatorMemberId FK
+  TEXT frozenContributionIds
+  varchar_36_ goalId
+  varchar_36_ id PK
+  varchar_36_ projectId FK
+  varchar_16_ purpose
+  TEXT referencedWorkIds
+  datetime_3_ startedAt
+  varchar_16_ state
+  varchar_256_ topic
+  datetime_3_ updatedAt
+  INTEGER version
+}
+"ai_department_meeting_action_item" {
+  datetime_3_ approvedAt
+  varchar approvedBy
+  varchar_36_ assigneeMemberId FK
+  varchar_36_ conversionRequestId
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  TEXT description
+  varchar_36_ id PK
+  varchar_36_ meetingId FK
+  varchar_36_ minutesId FK
+  varchar_64_ payloadHash
+  varchar_36_ projectId
+  TEXT resolutionReason
+  datetime_3_ resolvedAt
+  TEXT sourceContributionIds
+  varchar_24_ state
+  varchar_256_ title
+  datetime_3_ updatedAt
+  varchar_36_ workId
+}
+"ai_department_meeting_activity" {
+  varchar_128_ action
+  varchar actorId
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  varchar_36_ meetingId FK
+  INTEGER meetingVersion
+  varchar_36_ projectId
+  varchar_64_ state
+  varchar_512_ summary
+  varchar_36_ targetId
+}
+"ai_department_meeting_context" {
+  varchar_64_ briefingHash
+  datetime_3_ capturedAt
+  datetime_3_ createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ id PK
+  varchar_36_ meetingId FK
+  varchar_36_ projectId
+  varchar_255_ snapshotRef
+  varchar_32_ toolPolicy
+  varchar_64_ toolPolicyVersion
+}
+"ai_department_meeting_contribution" {
+  datetime_3_ acceptedAt
+  TEXT contribution
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  varchar_36_ invocationId FK
+  varchar_36_ meetingId FK
+  varchar_36_ participantId FK
+  varchar_36_ projectId
+  TEXT sourceContributionIds
+}
+"ai_department_meeting_decision" {
+  datetime_3_ approvedAt
+  varchar approvedBy
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  varchar_36_ meetingId FK
+  varchar_36_ minutesId FK
+  varchar_36_ projectId
+  TEXT sourceContributionIds
+  varchar_16_ state
+  TEXT text
+  datetime_3_ updatedAt
+}
+"ai_department_meeting_invocation" {
+  varchar actorId
+  INTEGER bindingVersion
+  varchar_255_ contextRef
+  datetime_3_ createdAt
+  datetime_3_ deadlineAt
+  varchar_36_ departmentId
+  varchar_36_ executorId
+  varchar_36_ id PK
+  varchar_64_ inputHash
+  varchar_16_ kind
+  varchar_36_ meetingId FK
+  varchar_36_ memberId FK
+  varchar_255_ ownerInvocationRef
+  varchar_64_ ownerSequence
+  varchar_36_ participantId FK
+  varchar_36_ projectId
+  varchar_64_ requestKey
+  varchar_36_ retryOfInvocationId FK
+  varchar_64_ safeFailureCode
+  varchar_512_ safeFailureSummary
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  datetime_3_ terminalAt
+  datetime_3_ updatedAt
+}
+"ai_department_meeting_minutes" {
+  datetime_3_ approvedAt
+  varchar approvedBy
+  varchar authoredBy
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  TEXT disagreements
+  varchar_36_ id PK
+  varchar_36_ meetingId FK
+  varchar_36_ projectId
+  INTEGER revision
+  TEXT sourceContributionIds
+  varchar_16_ state
+  TEXT summary
+  datetime_3_ updatedAt
+}
+"ai_department_meeting_participant" {
+  INTEGER bindingVersion
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  TEXT exclusionReason
+  varchar_36_ executorId
+  boolean facilitator
+  varchar_36_ id PK
+  varchar_36_ meetingId FK
+  varchar_36_ memberId FK
+  varchar_128_ memberNameSnapshot
+  varchar_36_ projectId
+  varchar_16_ responseState
+  varchar_128_ roleSnapshot
+  datetime_3_ updatedAt
+  INTEGER version
+}
+"ai_department_meeting_source" {
+  varchar_16_ accessState
+  varchar_64_ contentHash
+  datetime_3_ createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ id PK
+  varchar_256_ labelSnapshot
+  varchar_36_ meetingId FK
+  varchar_36_ projectId
+  varchar_255_ snapshotRef
+  varchar_36_ sourceId
+  varchar_16_ sourceKind
+  varchar_64_ sourceVersion
+}
 "ai_department_member" {
   boolean archived
   datetime_3_ createdAt
   varchar_36_ departmentId FK
+  TEXT expertiseTags
   varchar_36_ id PK
   varchar_36_ managerMemberId FK
   varchar_128_ name
@@ -1114,13 +1510,23 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  datetime_3_ reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  TEXT reviewStagesJson
   TEXT safeSummary
   datetime_3_ startedAt
+  varchar_36_ submittedResultId
   datetime_3_ updatedAt
   varchar_36_ workId FK
+  TEXT workflowCapabilitiesJson
+  TEXT workflowIdsJson
 }
 "ai_department_work_claim" {
   varchar_36_ attemptId FK
+  INTEGER claimGeneration
   datetime_3_ claimedAt
   datetime_3_ createdAt
   varchar_36_ departmentId
@@ -1158,10 +1564,76 @@ erDiagram
   varchar_16_ state
   varchar_36_ workId PK
 }
+"ai_department_work_handoff_intent" {
+  varchar authorizedByUserId
+  datetime_3_ completedAt
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  INTEGER destinationBindingVersion
+  varchar_36_ destinationMemberId
+  INTEGER expectedWorkVersion
+  varchar_36_ id PK
+  varchar_36_ projectId
+  TEXT reason
+  varchar_36_ requestId
+  varchar requestedByActorId
+  varchar_36_ requestedByMemberId
+  varchar_36_ sourceAttemptId
+  varchar_36_ sourceMemberId
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  varchar_36_ workId FK
+}
+"ai_department_work_help_request" {
+  TEXT attemptedStepsJson
+  INTEGER bindingVersion
+  datetime_3_ createdAt
+  datetime_3_ deadlineAt
+  varchar_36_ departmentId FK
+  TEXT expertiseTagsJson
+  varchar_36_ id PK
+  varchar initiatingUserId FK
+  varchar_64_ inputHash
+  varchar_64_ ownerInvocationHash
+  varchar_128_ ownerReference
+  varchar_36_ projectId FK
+  TEXT question
+  TEXT reason
+  varchar_36_ recipientMemberId FK
+  varchar_36_ recipientUserId FK
+  TEXT requestChainJson
+  varchar_36_ requestId
+  varchar_36_ requesterMemberId FK
+  varchar_32_ routingState
+  varchar_36_ sourceAttemptId FK
+  varchar_24_ state
+  datetime_3_ updatedAt
+  INTEGER version
+  varchar_36_ workId FK
+}
+"ai_department_work_help_response" {
+  varchar_36_ activityId FK
+  TEXT answer
+  varchar_64_ answerHash
+  datetime_3_ createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id PK
+  varchar_128_ ownerInvocationRef
+  INTEGER ownerSequence
+  varchar_36_ projectId FK
+  varchar_16_ responderKind
+  varchar_36_ responderMemberId FK
+  varchar responderUserId FK
+  varchar_36_ sourceAttemptId FK
+  varchar_36_ workId FK
+}
 "ai_department_work_item" {
+  varchar_36_ assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   datetime_3_ createdAt
   varchar_36_ currentAttemptId FK
+  INTEGER currentReviewStageIndex
   varchar_36_ departmentId FK
   datetime_3_ dueAt
   varchar_36_ goalId FK
@@ -1170,6 +1642,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  TEXT reviewStagesJson
   varchar_24_ state
   datetime_3_ updatedAt
   INTEGER version
@@ -1200,6 +1675,21 @@ erDiagram
   datetime_3_ updatedAt
   varchar_36_ workId FK
 }
+"ai_department_work_release_intent" {
+  datetime_3_ confirmedAt
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  varchar_36_ projectId
+  TEXT reason
+  varchar_36_ requestId
+  varchar requestedByActorId
+  varchar_36_ sourceAttemptId
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  boolean waitingForChildren
+  varchar_36_ workId FK
+}
 "ai_department_work_review_decision" {
   varchar actorId
   varchar_36_ attemptId FK
@@ -1210,6 +1700,66 @@ erDiagram
   INTEGER priorVersion
   varchar_36_ projectId
   TEXT reason
+  varchar_36_ resultId
+  varchar_36_ reviewRoundId
+  varchar_64_ stageId
+  varchar_36_ workId FK
+}
+"ai_department_work_review_policy_revision" {
+  datetime_3_ createdAt
+  varchar createdByUserId
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  varchar_16_ mode
+  varchar_36_ projectId
+  INTEGER revision
+  TEXT stagesJson
+  varchar_36_ workId FK
+}
+"ai_department_work_review_round" {
+  varchar_64_ activeStageId
+  varchar_36_ attemptId FK
+  datetime_3_ closedAt
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  INTEGER ordinal
+  varchar_36_ policyRevisionId FK
+  varchar_36_ projectId
+  varchar requesterId
+  varchar_16_ requesterKind
+  varchar_36_ resultId FK
+  varchar_16_ status
+  INTEGER version
+  varchar_36_ workId FK
+}
+"ai_department_work_review_stage_decision" {
+  varchar actorId
+  varchar_16_ actorKind
+  varchar_36_ commandId
+  datetime_3_ createdAt
+  varchar_16_ decision
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  INTEGER priorVersion
+  varchar_36_ projectId
+  TEXT reason
+  varchar_36_ resultId FK
+  varchar_36_ roundId FK
+  varchar_64_ stageId
+  varchar_36_ workId
+}
+"ai_department_work_submitted_result" {
+  varchar_36_ attemptId FK
+  datetime_3_ createdAt
+  varchar_36_ departmentId
+  varchar_36_ id PK
+  varchar_36_ projectId
+  varchar_255_ reference
+  TEXT safeSummary
+  datetime_3_ submittedAt
+  varchar submittedByUserId
+  datetime_3_ updatedAt
   varchar_36_ workId FK
 }
 "ai_department_work_transition" {
@@ -1238,6 +1788,7 @@ erDiagram
 }
 "ai_department_work_wake_lane" {
   INTEGER acknowledgedGeneration
+  varchar_36_ activeAttemptId
   varchar actorId PK
   INTEGER bindingVersion PK
   datetime_3_ createdAt
@@ -1245,6 +1796,74 @@ erDiagram
   varchar_36_ memberId PK
   varchar_36_ projectId PK
   varchar_16_ state
+  datetime_3_ updatedAt
+}
+"ai_department_workflow_capability" {
+  datetime_3_ createdAt
+  varchar_36_ departmentId FK
+  boolean enabled
+  varchar_36_ id PK
+  varchar_128_ inputSchemaFingerprint
+  varchar_36_ memberId FK
+  varchar_36_ projectId
+  varchar_36_ publishedVersionRef
+  TEXT purpose
+  varchar_128_ triggerCompatibilityRef
+  datetime_3_ updatedAt
+  INTEGER version
+  varchar_36_ workflowId
+}
+"ai_department_workflow_capability_revision" {
+  varchar_36_ capabilityId FK
+  varchar_36_ changedById
+  datetime_3_ createdAt
+  boolean enabled
+  varchar_36_ id PK
+  varchar_128_ inputSchemaFingerprint
+  varchar_36_ projectId
+  varchar_36_ publishedVersionRef
+  TEXT purpose
+  varchar_128_ triggerCompatibilityRef
+  INTEGER version
+}
+"ai_department_workflow_invocation" {
+  varchar_36_ actualWorkflowVersion
+  varchar_36_ attemptId FK
+  datetime_3_ cancelRequestedAt
+  varchar_36_ capabilityId FK
+  INTEGER capabilityVersion
+  varchar_16_ childState
+  INTEGER claimGeneration
+  datetime_3_ createdAt
+  varchar_16_ dispatchState
+  varchar_36_ expectedWorkflowVersion
+  varchar_36_ id PK
+  varchar_64_ inputHash
+  varchar_255_ inputsRef
+  varchar_36_ memberId
+  varchar_255_ ownerExecutionRef
+  varchar_64_ ownerInvocationKey
+  varchar_36_ projectId
+  varchar_128_ requestId
+  varchar_255_ safeErrorReference
+  varchar_255_ safeResultReference
+  datetime_3_ updatedAt
+  INTEGER version
+  varchar_36_ workId FK
+}
+"ai_department_workflow_invocation_receipt" {
+  varchar_36_ actualWorkflowVersion
+  varchar_16_ childState
+  datetime_3_ createdAt
+  varchar_36_ eventId PK
+  varchar_36_ invocationId FK
+  datetime_3_ occurredAt
+  varchar_255_ ownerExecutionRef
+  varchar_20_ ownerSequence
+  datetime_3_ receivedAt
+  varchar_255_ retryOfExecutionRef
+  varchar_255_ safeErrorReference
+  varchar_255_ safeResultReference
   datetime_3_ updatedAt
 }
 "ai_preference" {

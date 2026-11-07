@@ -178,6 +178,30 @@ describe('ActiveExecutions', () => {
 		expect(update).not.toHaveProperty('startedAt');
 	});
 
+	test('keeps a department queue recovery row new until Bull accepts its stable job', async () => {
+		Object.assign(executionsConfig, { mode: 'queue' });
+		const departmentRun: IWorkflowExecutionDataProcess = {
+			...executionData,
+			executionMode: 'integrated',
+			executionData: {
+				...createEmptyRunExecutionData(),
+				resultData: {
+					runData: {},
+					metadata: { aiDepartmentWorkflowInvocationId: 'invocation-a' },
+				},
+			},
+		};
+
+		await activeExecutions.add(departmentRun, {
+			executionId: FAKE_SECOND_EXECUTION_ID,
+			expectedStatus: 'new',
+		});
+
+		expect(executionPersistence.updateExistingExecution).not.toHaveBeenCalled();
+		expect(executionRepository.setRunning).not.toHaveBeenCalled();
+		Object.assign(executionsConfig, { mode: 'regular' });
+	});
+
 	test('Should preserve startedAt when resuming a waiting execution', async () => {
 		await activeExecutions.add(executionData, {
 			executionId: FAKE_SECOND_EXECUTION_ID,

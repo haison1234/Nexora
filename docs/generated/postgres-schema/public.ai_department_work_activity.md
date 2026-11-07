@@ -10,7 +10,7 @@
 | body | text |  | true |  |  |  |
 | createdAt | timestamp(3) with time zone |  | false |  |  |  |
 | departmentId | varchar(36) |  | false |  |  |  |
-| id | varchar(36) |  | false |  |  |  |
+| id | varchar(36) |  | false | [public.ai_department_work_help_response](public.ai_department_work_help_response.md) |  |  |
 | kind | varchar(32) |  | false |  |  |  |
 | projectId | varchar(36) |  | false |  |  |  |
 | workId | varchar(36) |  | false |  | [public.ai_department_work_item](public.ai_department_work_item.md) |  |
@@ -37,6 +37,7 @@
 
 | Name | Definition |
 | ---- | ---------- |
+| IDX_ai_department_work_activity_projectId_departmentId_createdA | CREATE INDEX "IDX_ai_department_work_activity_projectId_departmentId_createdA" ON public.ai_department_work_activity USING btree ("projectId", "departmentId", "createdAt") |
 | IDX_ai_department_work_activity_projectId_workId_attemptId_kind | CREATE INDEX "IDX_ai_department_work_activity_projectId_workId_attemptId_kind" ON public.ai_department_work_activity USING btree ("projectId", "workId", "attemptId", kind) |
 | IDX_ai_department_work_activity_projectId_workId_workVersion | CREATE UNIQUE INDEX "IDX_ai_department_work_activity_projectId_workId_workVersion" ON public.ai_department_work_activity USING btree ("projectId", "workId", "workVersion") |
 | PK_a79af531e38192fe80e95468b75 | CREATE UNIQUE INDEX "PK_a79af531e38192fe80e95468b75" ON public.ai_department_work_activity USING btree (id) |
@@ -46,6 +47,7 @@
 ```mermaid
 erDiagram
 
+"public.ai_department_work_help_response" }o--|| "public.ai_department_work_activity" : "FOREIGN KEY (#quot;activityId#quot;) REFERENCES ai_department_work_activity(id) ON DELETE CASCADE"
 "public.ai_department_work_activity" }o--|| "public.ai_department_work_item" : "FOREIGN KEY (#quot;workId#quot;) REFERENCES ai_department_work_item(id) ON DELETE CASCADE"
 
 "public.ai_department_work_activity" {
@@ -61,10 +63,29 @@ erDiagram
   varchar_36_ workId FK
   integer workVersion
 }
+"public.ai_department_work_help_response" {
+  varchar_36_ activityId FK
+  text answer
+  varchar_64_ answerHash
+  timestamp_3__with_time_zone createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id
+  varchar_128_ ownerInvocationRef
+  integer ownerSequence
+  varchar_36_ projectId FK
+  varchar_16_ responderKind
+  varchar_36_ responderMemberId FK
+  uuid responderUserId FK
+  varchar_36_ sourceAttemptId FK
+  varchar_36_ workId FK
+}
 "public.ai_department_work_item" {
+  uuid assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   timestamp_3__with_time_zone createdAt
   varchar_36_ currentAttemptId FK
+  integer currentReviewStageIndex
   varchar_36_ departmentId FK
   timestamp_3__with_time_zone dueAt
   varchar_36_ goalId FK
@@ -73,6 +94,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  text reviewStagesJson
   varchar_24_ state
   timestamp_3__with_time_zone updatedAt
   integer version

@@ -23,7 +23,7 @@ Use the root/package AGENTS for formatting, lint, and any required migration/pro
 
 1. Configure a published compatible workflow for one member. Reject an unselected, another project's, unpublished, archived, or incompatible workflow.
 2. Call with valid input during an active attempt. Follow work -> attempt -> capability -> invocation -> owner execution. Try invalid input and revoked access; no new execution may start.
-3. Duplicate the same request before and after acknowledgment. Crash after owner acceptance and reconcile the same invocation key without another execution.
+3. Duplicate the same request before and after acknowledgment. Change the project pool after queue acceptance, restart the process, and reconcile the same invocation key from the original queue without another execution.
 4. Supply waiting, native retry, failure, success, pending stop, and confirmed cancellation outcomes. Preserve distinct child labels.
 5. Deliver an older attempt's result after retry. Keep it in its original history and do not change the current attempt or business review state.
 6. Remove execution-detail access while preserving safe work access. Return an unavailable/private label without payload disclosure.

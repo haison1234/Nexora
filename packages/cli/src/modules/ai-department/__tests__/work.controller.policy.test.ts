@@ -15,9 +15,13 @@ describe('WorkController route access scopes', () => {
 			createGoal: 'agent:create',
 			updateGoal: 'agent:update',
 			listWork: 'agent:list',
+			listDepartmentActivity: 'agent:read',
 			createWork: 'agent:create',
 			getWork: 'agent:read',
+			getCurrentClaim: 'agent:read',
+			getWakeStatus: 'agent:read',
 			listActivity: 'agent:read',
+			addWorkActivity: 'agent:update',
 			listRelationships: 'agent:list',
 			createRelationship: 'agent:update',
 			deleteRelationship: 'agent:update',
@@ -27,8 +31,14 @@ describe('WorkController route access scopes', () => {
 			retryWork: 'agent:update',
 			cancelWork: 'agent:update',
 			reviewWork: 'agent:update',
+			reopenReview: 'agent:update',
 			getWorkHistory: 'agent:read',
+			listReviewDecisions: 'agent:read',
 			listAttempts: 'agent:read',
+			listToolApprovalAttention: 'agent:read',
+			listHelpRequestsAttention: 'agent:read',
+			listHelpRequests: 'agent:read',
+			answerHelpRequest: 'agent:update',
 		} as const;
 
 		expect(Array.from(routes.keys()).sort()).toEqual(Object.keys(expectedScopes).sort());

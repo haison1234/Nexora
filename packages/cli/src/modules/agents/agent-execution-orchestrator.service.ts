@@ -10,6 +10,7 @@ import type {
 	AgentChatMessagesResponse,
 	BudgetGuardrailConfig,
 	AgentBudgetNotice,
+	AiDepartmentWorkflowCapabilitySnapshot,
 } from '@n8n/api-types';
 import { N8N_CHAT_INTEGRATION_TYPE } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
@@ -161,6 +162,8 @@ export interface ExecuteForN8nChatPublishedConfig
 	extends ChatExecutionInput,
 		ChatExecutionCallbacks {
 	departmentWork?: boolean;
+	departmentWorkflowIds?: string[];
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 	user: User;
 	abortSignal?: AbortSignal;
 }
@@ -250,6 +253,11 @@ export interface StreamChatResponseConfig extends ChatExecutionInput, ChatExecut
 	userId?: string;
 	/** What the model receives when it differs from `message`. */
 	modelMessage?: string;
+	/** Skip every saved Agent budget for isolated AI Department meetings. */
+	departmentMeeting?: boolean;
+	/** Marks one isolated Department help consultation turn. */
+	departmentConsultation?: boolean;
+	maxOutputTokens?: number;
 	/** Chat platform user who wrote the turn; shown as the sender in the sessions view. */
 	author?: AgentMessageAuthor;
 	source?: string;
@@ -541,7 +549,11 @@ export class AgentExecutionOrchestratorService {
 		if (await this.resumeBackgroundForChat(resume)) return;
 		const checkpoint = await this.loadResumeCheckpoint(resume);
 		// n8n Chat has one canonical source; the caller doesn't need to pass it.
-		const run = { ...resume, source: resume.source ?? checkpoint.scope.source };
+		const source =
+			checkpoint.memoryScope.hostMetadata?.aiDepartmentWork === true
+				? 'ai-department'
+				: (resume.source ?? checkpoint.scope.source);
+		const run = { ...resume, source };
 		yield* this.withRuntimeLease(
 			async () => await this.getResumeRuntime(run, checkpoint),
 			(runtime) => this.resumeRuntimeTurn(run, checkpoint, runtime),
@@ -808,6 +820,9 @@ export class AgentExecutionOrchestratorService {
 			user,
 			abortSignal,
 			sessionMode = 'new',
+			departmentWork,
+			departmentWorkflowIds,
+			departmentWorkflowCapabilities,
 		} = config;
 		const setup = await this.prepareN8nChat({
 			agentId,
@@ -816,6 +831,7 @@ export class AgentExecutionOrchestratorService {
 			resourceId: memory.resourceId,
 			userId: user.id,
 			sessionMode,
+			departmentWork,
 		});
 		await this.externalHooks.run('agent.preExecute', [agentId]);
 		yield* this.withRuntimeLease(
@@ -827,7 +843,14 @@ export class AgentExecutionOrchestratorService {
 						integrationType: config.departmentWork
 							? 'ai-department'
 							: setup.runtime.integrationType,
-						...(config.departmentWork ? { user, allowBackgroundTasks: false } : {}),
+						...(config.departmentWork
+							? {
+									user,
+									allowBackgroundTasks: false,
+									departmentWorkflowIds,
+									departmentWorkflowCapabilities,
+								}
+							: {}),
 						usePublishedVersion: setup.runtime.usePublishedVersion,
 						sandboxPrincipalHash: setup.sandboxPrincipalHash,
 						attributionUserId: setup.runtime.attributionUserId,
@@ -1141,6 +1164,134 @@ export class AgentExecutionOrchestratorService {
 				: async () => await this.requestPendingBackgroundWake(config.memory.threadId),
 			prepare: async () => await this.prepareChatTurn(config),
 		});
+	}
+
+	/** Execute one meeting contribution on the isolated Agents runtime profile. */
+	async *executeForDepartmentMeeting(config: {
+		agentId: string;
+		projectId: string;
+		threadId: string;
+		resourceId: string;
+		inputText: string;
+		actorId: string;
+		admittedExecution: AgentExecutionAdmission;
+		abortSignal: AbortSignal;
+		maxOutputTokens: number;
+	}): AsyncGenerator<AgentExecutionStreamChunk> {
+		const runtime = await this.runtimeCacheService.getRuntime({
+			agentId: config.agentId,
+			projectId: config.projectId,
+			usePublishedVersion: true,
+			departmentMeeting: true,
+		});
+		try {
+			if (
+				runtime.agent.declaredTools.length > 0 ||
+				runtime.toolRegistry.size > 0 ||
+				runtime.mcpServerAttributions.size > 0
+			) {
+				throw new UserError('Meeting runtime has disallowed capabilities.');
+			}
+			const stream = this.streamChatResponse({
+				admittedExecution: config.admittedExecution,
+				agentInstance: runtime.agent,
+				toolRegistry: runtime.toolRegistry,
+				mcpServerAttributions: runtime.mcpServerAttributions,
+				agentId: config.agentId,
+				projectId: config.projectId,
+				message: config.inputText,
+				modelMessage: config.inputText,
+				memory: { threadId: config.threadId, resourceId: config.resourceId },
+				userId: config.actorId,
+				source: 'ai-department-meeting',
+				access: { accessScope: 'project', ownerId: null },
+				telemetry: {
+					runType: 'production',
+					configuration: runtime.telemetryConfiguration,
+				},
+				sandboxPrincipalHash: hashAgentSandboxPrincipal({
+					type: 'n8n-user',
+					userId: config.actorId,
+				}),
+				abortSignal: config.abortSignal,
+				departmentMeeting: true,
+				maxOutputTokens: config.maxOutputTokens,
+				sessionMode: 'existing',
+				hideUserMessageFromTranscript: true,
+			});
+			for await (const chunk of stream) {
+				if (chunk.type === 'tool-call' || chunk.type === 'tool-result') {
+					throw new UserError('Meeting runtime tried to use a tool.');
+				}
+				yield chunk;
+			}
+		} finally {
+			this.runtimeCacheService.releaseRuntimeLease(runtime.agent);
+		}
+	}
+
+	/** Execute one help response on the isolated Agents consultation profile. */
+	async *executeForDepartmentConsultation(config: {
+		agentId: string;
+		projectId: string;
+		threadId: string;
+		resourceId: string;
+		inputText: string;
+		actorId: string;
+		admittedExecution: AgentExecutionAdmission;
+		abortSignal: AbortSignal;
+		maxOutputTokens: number;
+	}): AsyncGenerator<AgentExecutionStreamChunk> {
+		const runtime = await this.runtimeCacheService.getRuntime({
+			agentId: config.agentId,
+			projectId: config.projectId,
+			usePublishedVersion: true,
+			departmentConsultation: true,
+		});
+		try {
+			if (
+				runtime.agent.declaredTools.length > 0 ||
+				runtime.toolRegistry.size > 0 ||
+				runtime.mcpServerAttributions.size > 0
+			) {
+				throw new UserError('Consultation runtime has disallowed capabilities.');
+			}
+			const stream = this.streamChatResponse({
+				admittedExecution: config.admittedExecution,
+				agentInstance: runtime.agent,
+				toolRegistry: runtime.toolRegistry,
+				mcpServerAttributions: runtime.mcpServerAttributions,
+				agentId: config.agentId,
+				projectId: config.projectId,
+				message: config.inputText,
+				modelMessage: config.inputText,
+				memory: { threadId: config.threadId, resourceId: config.resourceId },
+				userId: config.actorId,
+				source: 'ai-department-consultation',
+				access: { accessScope: 'project', ownerId: null },
+				telemetry: {
+					runType: 'production',
+					configuration: runtime.telemetryConfiguration,
+				},
+				sandboxPrincipalHash: hashAgentSandboxPrincipal({
+					type: 'n8n-user',
+					userId: config.actorId,
+				}),
+				abortSignal: config.abortSignal,
+				departmentConsultation: true,
+				maxOutputTokens: config.maxOutputTokens,
+				sessionMode: 'existing',
+				hideUserMessageFromTranscript: true,
+			});
+			for await (const chunk of stream) {
+				if (chunk.type === 'tool-call' || chunk.type === 'tool-result') {
+					throw new UserError('Consultation runtime tried to use a tool.');
+				}
+				yield chunk;
+			}
+		} finally {
+			this.runtimeCacheService.releaseRuntimeLease(runtime.agent);
+		}
 	}
 
 	private async *withRuntimeLease(
@@ -1516,6 +1667,7 @@ export class AgentExecutionOrchestratorService {
 		resourceId: string;
 		userId: string;
 		sessionMode: AgentSessionMode;
+		departmentWork?: boolean;
 		/** Skip the publish check. Only for resume, which already checked it. */
 		skipPublishedCheck?: boolean;
 		/** Produces the error thrown for an inaccessible thread. Defaults to 'Session not found'. */
@@ -1528,6 +1680,7 @@ export class AgentExecutionOrchestratorService {
 			resourceId,
 			userId,
 			sessionMode,
+			departmentWork,
 			skipPublishedCheck,
 			denied,
 		} = params;
@@ -1541,15 +1694,23 @@ export class AgentExecutionOrchestratorService {
 		if (resourceId !== chatSurfaceMemoryResourceId('n8n-chat', userId)) {
 			throw fail();
 		}
-		if (
-			!(await this.agentExecutionService.canUseProductionChatThread(
-				threadId,
-				projectId,
-				agentId,
-				userId,
-				sessionMode,
-			))
-		) {
+		const canUseThread = departmentWork
+			? await this.agentExecutionService.canUseProductionChatThread(
+					threadId,
+					projectId,
+					agentId,
+					userId,
+					sessionMode,
+					true,
+				)
+			: await this.agentExecutionService.canUseProductionChatThread(
+					threadId,
+					projectId,
+					agentId,
+					userId,
+					sessionMode,
+				);
+		if (!canUseThread) {
 			throw fail();
 		}
 		return {
@@ -1740,9 +1901,12 @@ export class AgentExecutionOrchestratorService {
 					...modelStreamStallOptions(this.aiConfig),
 					...(tracing ? { telemetry: tracing } : {}),
 					...(abortSignal ? { abortSignal } : {}),
+					...((config.departmentMeeting || config.departmentConsultation) && config.maxOutputTokens
+						? { maxOutputTokens: config.maxOutputTokens }
+						: {}),
 				},
 				{
-					budget: config.budget,
+					budget: config.departmentMeeting ? undefined : config.budget,
 					sessionId: threadId,
 					agentId,
 					...(config.chatSurface === 'preview' && config.onBudgetNotice

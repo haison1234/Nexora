@@ -306,6 +306,9 @@ catalog:
   ioredis-mock: ^8.8.1
   '@types/ioredis-mock': 8.2.2
   '@microsoft/opentelemetry': 1.5.0
+  three: 0.187.0
+  '@types/three': 0.187.0
+  fake-indexeddb: ^6.0.0
 
 catalogMode: strict
 

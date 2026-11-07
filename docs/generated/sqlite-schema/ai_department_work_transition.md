@@ -88,15 +88,26 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  datetime_3_ reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  TEXT reviewStagesJson
   TEXT safeSummary
   datetime_3_ startedAt
+  varchar_36_ submittedResultId
   datetime_3_ updatedAt
   varchar_36_ workId FK
+  TEXT workflowCapabilitiesJson
+  TEXT workflowIdsJson
 }
 "ai_department_work_item" {
+  varchar_36_ assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   datetime_3_ createdAt
   varchar_36_ currentAttemptId FK
+  INTEGER currentReviewStageIndex
   varchar_36_ departmentId FK
   datetime_3_ dueAt
   varchar_36_ goalId FK
@@ -105,6 +116,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  TEXT reviewStagesJson
   varchar_24_ state
   datetime_3_ updatedAt
   INTEGER version

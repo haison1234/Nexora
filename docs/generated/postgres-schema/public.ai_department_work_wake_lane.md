@@ -5,6 +5,7 @@
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
 | acknowledgedGeneration | integer |  | false |  |  |  |
+| activeAttemptId | varchar(36) |  | true |  |  |  |
 | actorId | uuid |  | false |  |  |  |
 | bindingVersion | integer |  | false |  |  |  |
 | createdAt | timestamp(3) with time zone | CURRENT_TIMESTAMP(3) | false |  |  |  |
@@ -47,6 +48,7 @@ erDiagram
 
 "public.ai_department_work_wake_lane" {
   integer acknowledgedGeneration
+  varchar_36_ activeAttemptId
   uuid actorId
   integer bindingVersion
   timestamp_3__with_time_zone createdAt
@@ -60,6 +62,7 @@ erDiagram
   boolean archived
   timestamp_3__with_time_zone createdAt
   varchar_36_ departmentId FK
+  json expertiseTags
   varchar_36_ id
   varchar_36_ managerMemberId FK
   varchar_128_ name

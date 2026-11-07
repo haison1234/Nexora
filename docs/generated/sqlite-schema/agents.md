@@ -18,7 +18,7 @@ CREATE TABLE "agents" ("id" varchar(36) PRIMARY KEY NOT NULL, "name" varchar(128
 | activeVersionId | varchar(36) |  | true |  | [agent_history](agent_history.md) |  |
 | availableInMCP | boolean | false | false |  |  |  |
 | createdAt | datetime(3) | STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW') | false |  |  |  |
-| id | varchar(36) |  | false | [agent_background_job](agent_background_job.md) [agent_channel_status](agent_channel_status.md) [agent_chat_attachments](agent_chat_attachments.md) [agent_chat_subscriptions](agent_chat_subscriptions.md) [agent_checkpoints](agent_checkpoints.md) [agent_credential_dependency](agent_credential_dependency.md) [agent_eval_dataset](agent_eval_dataset.md) [agent_execution_threads](agent_execution_threads.md) [agent_files](agent_files.md) [agent_history](agent_history.md) [agent_publish_history](agent_publish_history.md) [agent_skill_dependency](agent_skill_dependency.md) [agent_task_definition](agent_task_definition.md) [agent_task_run_lock](agent_task_run_lock.md) [agent_workflow_dependency](agent_workflow_dependency.md) [agents_memory_entries](agents_memory_entries.md) [agents_memory_entry_candidates](agents_memory_entry_candidates.md) [agents_memory_entry_locks](agents_memory_entry_locks.md) [agents_memory_entry_sources](agents_memory_entry_sources.md) [agents_observation_cursors](agents_observation_cursors.md) [agents_observation_locks](agents_observation_locks.md) [agents_observations](agents_observations.md) [skill](skill.md) |  |  |
+| id | varchar(36) |  | false | [agent_background_job](agent_background_job.md) [agent_channel_status](agent_channel_status.md) [agent_chat_attachments](agent_chat_attachments.md) [agent_chat_subscriptions](agent_chat_subscriptions.md) [agent_checkpoints](agent_checkpoints.md) [agent_credential_dependency](agent_credential_dependency.md) [agent_department_consultation_invocation](agent_department_consultation_invocation.md) [agent_eval_dataset](agent_eval_dataset.md) [agent_execution_threads](agent_execution_threads.md) [agent_files](agent_files.md) [agent_history](agent_history.md) [agent_publish_history](agent_publish_history.md) [agent_skill_dependency](agent_skill_dependency.md) [agent_task_definition](agent_task_definition.md) [agent_task_run_lock](agent_task_run_lock.md) [agent_workflow_dependency](agent_workflow_dependency.md) [agents_memory_entries](agents_memory_entries.md) [agents_memory_entry_candidates](agents_memory_entry_candidates.md) [agents_memory_entry_locks](agents_memory_entry_locks.md) [agents_memory_entry_sources](agents_memory_entry_sources.md) [agents_observation_cursors](agents_observation_cursors.md) [agents_observation_locks](agents_observation_locks.md) [agents_observations](agents_observations.md) [skill](skill.md) |  |  |
 | integrations | TEXT | '[]' | false |  |  |  |
 | name | varchar(128) |  | false |  |  |  |
 | projectId | varchar(255) |  | true |  | [project](project.md) |  |
@@ -63,6 +63,7 @@ erDiagram
 "agent_chat_subscriptions" |o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_checkpoints" }o--o| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_credential_dependency" |o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_consultation_invocation" }o--|| "agents" : "FOREIGN KEY (executorId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_eval_dataset" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_execution_threads" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_files" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
@@ -188,6 +189,40 @@ erDiagram
   datetime_3_ createdAt
   varchar_36_ credentialId PK
 }
+"agent_department_consultation_invocation" {
+  varchar actorId
+  INTEGER bindingVersion
+  varchar_64_ commandKey
+  varchar_64_ contextHash
+  varchar_255_ contextRef
+  datetime_3_ createdAt
+  datetime_3_ deadlineAt
+  varchar_36_ departmentId FK
+  varchar_36_ executorId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id PK
+  varchar_64_ inputHash
+  TEXT inputText
+  varchar_36_ invocationId
+  INTEGER maxOutputChars
+  INTEGER maxOutputTokens
+  varchar_16_ outcome
+  varchar_36_ projectId FK
+  varchar_36_ recipientMemberId FK
+  varchar_36_ requesterMemberId FK
+  varchar_64_ resultHash
+  TEXT resultText
+  varchar_64_ safeErrorCode
+  varchar_64_ sequence
+  varchar_36_ sourceAttemptId FK
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  varchar_64_ stopPayloadHash
+  datetime_3_ stopRequestedAt
+  datetime_3_ terminalAt
+  varchar_128_ threadId
+  datetime_3_ updatedAt
+}
 "agent_eval_dataset" {
   varchar_36_ agentId FK
   TEXT columnMapping
@@ -205,6 +240,7 @@ erDiagram
   varchar_36_ agentId FK
   varchar_255_ agentName
   datetime_3_ createdAt
+  INTEGER departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id PK
   varchar ownerId FK

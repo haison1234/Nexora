@@ -89,6 +89,7 @@ describe('N8nDropdownMenu', () => {
 			});
 
 			const trigger = container.querySelector('button');
+			expect(trigger).toHaveAttribute('aria-label', 'More options');
 			expect(trigger).toMatchSnapshot();
 		});
 

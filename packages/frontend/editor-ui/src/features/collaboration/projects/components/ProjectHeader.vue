@@ -546,7 +546,7 @@ const onSelect = (action: string, source: CreateSource) => {
 				/>
 			</div>
 			<div
-				v-if="route.name !== VIEWS.PROJECT_SETTINGS"
+				v-if="route.name !== VIEWS.PROJECT_SETTINGS && !props.hideHeaderActions"
 				ref="headerActionsRef"
 				:class="[$style.headerActions]"
 			>

@@ -4,11 +4,12 @@ import { mock } from 'vitest-mock-extended';
 import { DepartmentService } from '../department.service';
 import { MemberService } from '../member.service';
 import type { DirectoryRepository } from '../database/repositories/directory.repository';
-import type { ActiveDepartmentWorkGuardProxy } from '../active-department-work-guard.contracts';
+import type { ActiveDepartmentArchiveGuardProxy } from '../active-department-archive-guard.contracts';
 import type { AgentBindingResolver } from '@/modules/agents/agent-binding-resolver.service';
 import type { Department } from '../database/entities/department.entity';
 import type { Member } from '../database/entities/member.entity';
 import type { OperationContext, TransactionRunner } from '@n8n/db';
+import type { AiDepartmentOperationsBroadcaster } from '../operations-broadcaster.service';
 
 const context = { trx: { getIsolationLevel: () => 'READ COMMITTED' } } as OperationContext;
 
@@ -16,16 +17,40 @@ function makeServices() {
 	const repository = mock<DirectoryRepository>();
 	const txRunner = mock<TransactionRunner>();
 	txRunner.run.mockImplementation(async (_ctx, operation) => await operation(context));
-	const guard = mock<ActiveDepartmentWorkGuardProxy>({ isRegistered: () => false });
+	const guard = mock<ActiveDepartmentArchiveGuardProxy>({ isRegistered: () => false });
 	const agentBindingResolver = mock<AgentBindingResolver>();
+	const operationsBroadcaster = mock<AiDepartmentOperationsBroadcaster>();
+	operationsBroadcaster.notifyCurrent.mockResolvedValue();
 	return {
 		repository,
-		departments: new DepartmentService(repository, txRunner, guard),
-		members: new MemberService(repository, txRunner, guard, agentBindingResolver),
+		departments: new DepartmentService(repository, txRunner, guard, operationsBroadcaster),
+		members: new MemberService(
+			repository,
+			txRunner,
+			guard,
+			agentBindingResolver,
+			operationsBroadcaster,
+		),
 	};
 }
 
 describe('AI department directory policies', () => {
+	it('fails closed when archive checks are not registered', async () => {
+		const { departments, members } = makeServices();
+		await expect(
+			departments.archive('project-a', 'user-a', 'department-a', {
+				expectedVersion: 1,
+				requestId: 'archive-a',
+			}),
+		).rejects.toThrow('archive checks are connected');
+		await expect(
+			members.archive('project-a', 'user-a', 'department-a', 'member-a', {
+				expectedVersion: 1,
+				requestId: 'archive-b',
+			}),
+		).rejects.toThrow('archive checks are connected');
+	});
+
 	it('trims and case folds department names when checking duplicates', async () => {
 		const { repository, departments } = makeServices();
 		repository.findActiveDepartmentByName.mockResolvedValue(null);

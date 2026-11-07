@@ -1,6 +1,6 @@
 # C3: Agent Execution and Recovery
 
-**Status:** Approved v1. G1 and G2 designs are closed. G2 owner implementation and runtime acceptance remain OPEN.
+**Status:** Approved v1. G1 runtime acceptance remains open. G2 controlled stop/revocation tests and same-process live stop pass; durable sequence acceptance remains open. Restart receipt recovery is separate evidence. See evidence.md.
 **Owner:** Spec 003; Spec 005 implements this boundary only when separately enabled.
 **Dependency:** C1 and C2 admission/identity.
 
@@ -79,8 +79,7 @@ G2 owner operation contract:
   the old slot until a correlated snapshot confirms terminal state. Unknown state keeps
   the slot reserved and visible for recovery.
 
-This closes the G2 design question. It does not claim the current Agents adapter meets
-the contract or that restart/revocation acceptance has passed.
+Controlled owner tests cover revoked-user stop authority, idempotent replay, and snapshot ordering. The opt-in live Ollama integration test starts model generation, sends a Department cancel while the provider request remains open, and confirms that the request aborts, the owner snapshot becomes terminal/cancelled, the receipt is confirmed, the attempt and work are cancelled, and the lane is released. This proves same-process live stop. A separate Ollama run verifies receipt persistence and terminal recovery across a process restart: the old process was already gone, the sweeper marked its execution `interrupted`, and reconciliation confirmed the receipt and cancelled the work. No model request must survive restart. Durable sequence acceptance, G1, and the remaining C3 acceptance cases remain open.
 
 Agent action body exposes action, expectedVersion, claimGeneration and bounded body or
 result reference. Host supplies identity and stable tool-call command ID. Inspect is
@@ -96,25 +95,122 @@ WorkCoordinationService, and department_work tool implement substantial parts.
 The adapter may use owner-private repositories inside Agents; the supported department
 boundary is the exported contract, whose complete recovery guarantees remain unverified.
 
-Current `isRunStopped(executionId)` checks execution status/HITL suspension. It does not
-provide the scoped stop-proof contract above. Current `requestStop()` requires current
-user `agent:execute` scope, so it cannot provide the approved narrow stop path after
-revocation. Current snapshot sequence derives from `updatedAt` and is not durable across
-clock changes or restart. Current claim code can change execution inside one attempt
-after this check. D3 requires a new attempt for a different run. G2 design is closed by
-the owner operation contract above; implementation and restart/revocation acceptance
-remain open and block handoff/recovery runtime acceptance.
+`isRunStopped(executionId)` still checks execution status/HITL suspension and is not the
+scoped stop-proof API. The owner adapter records stop receipts by command ID, verifies
+owner correlation, and accepts an explicit user or department control-plane authority
+context. Department cancellation, handoff, and release send their persisted command IDs.
+Snapshot sequence increments durably on the owner thread, and pending receipts report
+`stopping`. A main-instance reconciler retries pending receipts and marks them confirmed
+only after a terminal owner snapshot. Controlled tests cover revoked-user stop, receipt
+replay, and active-to-terminal snapshot ordering. Live notes recorded thread counter values
+5 before shutdown, 13 after restart, and 68 at terminal confirmation, but only final values
+remain in DB history. Across the two runs, persisted thread counters are 68 and 70, while
+department attempt `lastOwnerSequence` values are 54 and 56. The attempt field records the
+last sequence processed by the department and must not be reported as the thread counter.
+
+In an earlier isolated instance 5687, enabling the Agent's n8n Chat channel let Department work reach
+the configured OpenRouter model. The Agent claimed work and reported progress through
+`department_work`. Three runs ended after the tool returned `Work item has changed`; the
+latest attempt reported terminal success while work moved to `blocked`. On a later run,
+the authenticated UI issued Cancel while the attempt was active. The user reports that the
+pending receipt survived restart in run 2. The current process started after run 1 had
+already ended, so run 1's restart is not independently verifiable. A later isolated test
+instance now reproduces the process boundary directly: after a live model run produced
+output, the backend was killed; a post-restart cancel persisted a pending receipt; the
+production sweeper marked the abandoned execution `interrupted`; and stop reconciliation
+confirmed the receipt and cancelled the attempt and work. No browser observation verified a
+Cancelled UI label. This verifies persisted cancellation intent and terminal recovery after
+the old model process ended. A separate same-process Ollama test now confirms that Department
+cancel stops a live request. Durable sequence, G1, and the remaining C3 matrix remain open.
+The D3 implementation now stores the claim generation on `WorkClaim`, derived from the
+attempt ordinal. A different execution cannot take over the claim inside the same attempt,
+even after the owner reports stop. Reconciliation must first make the old attempt terminal;
+coordinator retry then creates a new attempt and a larger generation. Controlled SQLite
+tests cover this path. A two-process SQLite test now verifies that the same accepted Agent
+queue dispatch is found and claimed after restart, then that a waiting lane item is dispatched
+after the active test run finishes. A separate three-process test persists a running owner
+execution, writes a pending stop receipt after restart, then reconciles the receipt after a
+second restart when the owner execution becomes terminal. The test finalizes the execution
+through the production persistence service; it does not run a model or a live execution loop.
+Controlled C3-A2 checks now cover two concurrent claims and expired-claim retention when the
+owner stop proof is false. The Agents adapter maps running, suspended, and missing executions
+to false; terminal owner state maps to true. After terminal reconciliation, coordinator retry
+creates a new claim generation and the old claimant cannot report progress. The recover phase
+also retries progress with the old execution ID; the owner rejects it because the execution
+is no longer running. All three separate-process phases pass against one test-owned SQLite
+folder. The real-model owner matrix remains open under C3-A7.
+
+A separate isolated live run now covers G1 queue and lane recovery with Ollama
+`qwen2.5:3b`. The backend was killed while one Department model run was active and two items
+were eligible in the same lane. After restart, the production sweeper marked the old
+execution `interrupted`; Department reconciliation blocked that work and dispatched the two
+waiting items one at a time. Both post-restart model executions reached native `success`,
+and the final lane had no active attempt or queued message. The model did not submit a
+business result, so both work items became `blocked`. This verifies same-lane serial wake
+drain in one isolated main/SQLite setup. Multi-main races, duplicate admission, access-loss
+recovery, and the full G1 matrix remain open. The separate same-process Ollama cancel test now
+proves live stop; durable sequence and the remaining C3 recovery scenarios stay open.
+
 Current work reconciliation runs every 30 seconds. That is not evidence for C6's five-second
-visible-update target. Owner sequence/resume/restart semantics remain a source gate.
+visible-update target. Native approval process-restart and the remaining C3 recovery scenarios
+stay open; same-process live stop passes, while durable sequence acceptance remains open.
 
 005 runner isolation, pinned provider versions and approval checks stay additional
 requirements. No provider can skip this contract because it uses the same DTOs.
 
+### C3-A2 lease-stop predicate check — 2026-11-06
+
+- `AgentDepartmentExecutionAdapter.isRunStopped()` returns false for a running owner,
+  a suspended owner, and a missing execution record. It returns true after the owner leaves
+  suspension in a terminal state. The adapter suite passed 17/17.
+- `work-attempts.integration.test.ts` also confirms that an expired claim stays with its
+  active execution and rejects a competing claim. A concurrent two-execution claim test
+  confirms that only one claimant wins. The terminal-retry case creates a larger generation
+  and rejects progress from the previous claimant. The SQLite integration suite passed 38/38
+  twice against the same test-owned database. These checks close controlled C3-A2 acceptance;
+  the real-model owner matrix remains open under C3-A7.
+
+### C3-A1 dispatch recovery check — 2026-11-06
+
+- The attempt integration suite covers duplicate start replay, concurrent starts, and an
+  unknown dispatch acknowledgment without a second dispatch. It passed 38/38.
+- The restart `prepare` and `recover` phases passed in separate Vitest processes on the same
+  test-owned SQLite folder. Recovery found the same accepted owner dispatch and drained the
+  two retained lane items in order. These phases do not run a model.
+- The `race-prepare`, two `race-claim` worker processes, and `race-verify` phases also passed
+  on that SQLite folder. One worker claimed the dispatch; the other received no claim. The
+  verification process found one execution linked to the persisted queue row.
+- Controlled C3-A1 acceptance passes. The real-model owner matrix remains open under C3-A7.
+
+### C3-A3 approval resume source check — 2026-11-06
+
+- A new orchestrator test resumes a checkpoint marked `aiDepartmentWork`. It verifies that
+  the resumed call keeps its run and tool-call IDs, rebuilds the `ai-department` runtime for
+  the same owner thread, and records the next execution with source `ai-department`.
+- The test exposed a source-selection bug. n8n Chat channel setup overrode the persisted
+  Department source. Resume now gives the checkpoint's host-owned Department marker priority.
+- The orchestrator suite passed 171/171 before the final tool-call assertion. The focused
+  resume test passed after that assertion. CLI typecheck, focused Biome, and `git diff --check`
+  passed. Adapter tests also reject ordinary chat and delegated executions.
+- Process restart with a suspended native approval and Department tool-call context remains
+  unverified. Keep C3-A3 open until that path passes.
+
+### C3-A4 controlled result and archive check — 2026-11-06
+
+- The SQLite attempt integration suite passed 38/38 on the existing test-owned database.
+- The suite confirms that runtime success without a submitted result blocks work and that a
+  repeated snapshot has no second effect. It also confirms that a submitted automatic result
+  stays done after a later runtime failure, while department and member archive stay blocked
+  until the owner run stops.
+- A release test rejects retry and late submit while the current run is stopping, then allows
+  a new attempt after terminal confirmation. Provider-backed result generation and the full
+  C3-A4 runtime matrix remain open. Keep C3-A4 unchecked until those checks pass.
+
 ## Acceptance
 
-- [ ] C3-A1: Duplicate start, two workers and unknown acknowledgment create at most one
+- [x] C3-A1: Duplicate start, two workers and unknown acknowledgment create at most one
   active owner execution per work. Restart recovers the same attempt/key.
-- [ ] C3-A2: Two claims race. Only one wins. Expiry cannot transfer ownership while old
+- [x] C3-A2: Two claims race. Only one wins. Expiry cannot transfer ownership while old
   run is active, suspended or unknown. Confirmed stop permits a new attempt; old tokens fail.
 - [ ] C3-A3: Native approval resume and process restart retain work/tool-call context.
   An unrelated chat or delegated Agent cannot claim or report.

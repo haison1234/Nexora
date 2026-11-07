@@ -5,6 +5,7 @@
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
 | attemptId | varchar(36) |  | false |  | [public.ai_department_work_attempt](public.ai_department_work_attempt.md) |  |
+| claimGeneration | integer |  | false |  |  | Monotonic claim generation for a work attempt |
 | claimedAt | timestamp(3) with time zone |  | false |  |  |  |
 | createdAt | timestamp(3) with time zone |  | false |  |  |  |
 | departmentId | varchar(36) |  | false |  |  |  |
@@ -24,6 +25,7 @@
 | FK_e7c655c16404da78a88f3b2f3c6 | FOREIGN KEY | FOREIGN KEY ("attemptId") REFERENCES ai_department_work_attempt(id) ON DELETE CASCADE |
 | PK_6520173b1b41bffae9c67936006 | PRIMARY KEY | PRIMARY KEY (id) |
 | ai_department_work_claim_attemptId_not_null | n | NOT NULL "attemptId" |
+| ai_department_work_claim_claimGeneration_not_null | n | NOT NULL "claimGeneration" |
 | ai_department_work_claim_claimedAt_not_null | n | NOT NULL "claimedAt" |
 | ai_department_work_claim_createdAt_not_null | n | NOT NULL "createdAt" |
 | ai_department_work_claim_departmentId_not_null | n | NOT NULL "departmentId" |
@@ -51,6 +53,7 @@ erDiagram
 
 "public.ai_department_work_claim" {
   varchar_36_ attemptId FK
+  integer claimGeneration
   timestamp_3__with_time_zone claimedAt
   timestamp_3__with_time_zone createdAt
   varchar_36_ departmentId
@@ -83,15 +86,26 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  timestamp_3__with_time_zone reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  text reviewStagesJson
   text safeSummary
   timestamp_3__with_time_zone startedAt
+  varchar_36_ submittedResultId
   timestamp_3__with_time_zone updatedAt
   varchar_36_ workId FK
+  text workflowCapabilitiesJson
+  text workflowIdsJson
 }
 "public.ai_department_work_item" {
+  uuid assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   timestamp_3__with_time_zone createdAt
   varchar_36_ currentAttemptId FK
+  integer currentReviewStageIndex
   varchar_36_ departmentId FK
   timestamp_3__with_time_zone dueAt
   varchar_36_ goalId FK
@@ -100,6 +114,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  text reviewStagesJson
   varchar_24_ state
   timestamp_3__with_time_zone updatedAt
   integer version

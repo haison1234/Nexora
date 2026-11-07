@@ -66,6 +66,7 @@ import { NodeTypes } from '@/node-types';
 import type { PoolConfigService } from '@/scaling/pool-config.service.ee';
 import type { ScalingService } from '@/scaling/scaling.service';
 import type { Job, JobData } from '@/scaling/scaling.types';
+import { DEFAULT_QUEUE_NAME } from '@/scaling/queue-name';
 import { EngineV2Dispatcher } from '@/services/engine-v2-dispatcher.service';
 import { StreamingWebhookResponseHeartbeat } from '@/webhooks/streaming-webhook-response-heartbeat';
 import * as WorkflowExecuteAdditionalData from '@/workflow-execute-additional-data';
@@ -453,6 +454,11 @@ export class WorkflowRunner {
 				throw PreExecuteBlockedError.unwrap(error);
 			}
 		}
+		const shouldEnqueue =
+			process.env.OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS === 'true'
+				? this.executionsConfig.mode === 'queue'
+				: this.executionsConfig.mode === 'queue' && data.executionMode !== 'manual';
+		if (shouldEnqueue) await this.pinDepartmentQueue(data);
 
 		// Register a new execution
 		const executionId = await this.activeExecutions.add(data, existingExecution);
@@ -470,12 +476,6 @@ export class WorkflowRunner {
 		// The v1 main process owns the HTTP response. Start this before the
 		// queue/local decision because a worker cannot write to it.
 		const heartbeat = this.setupV1StreamingHeartbeat(data);
-
-		// @TODO: Reduce to true branch once feature is stable
-		const shouldEnqueue =
-			process.env.OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS === 'true'
-				? this.executionsConfig.mode === 'queue'
-				: this.executionsConfig.mode === 'queue' && data.executionMode !== 'manual';
 
 		const shouldReloadStaticData = Boolean(existingExecution && loadStaticData);
 
@@ -571,6 +571,56 @@ export class WorkflowRunner {
 			data.source,
 			this.resolvePinData(data),
 		);
+	}
+
+	async isDepartmentExecutionQueued(
+		executionId: string,
+		data: IWorkflowExecutionDataProcess,
+	): Promise<boolean> {
+		if (this.executionsConfig.mode !== 'queue') return false;
+		if (!this.scalingService) {
+			const { ScalingService } = await import('@/scaling/scaling.service.js');
+			this.scalingService = Container.get(ScalingService);
+			await this.scalingService.setupQueue();
+		}
+		if (!this.poolConfigService) {
+			const { PoolConfigService } = await import('@/scaling/pool-config.service.ee.js');
+			this.poolConfigService = Container.get(PoolConfigService);
+		}
+
+		const pinnedQueueName = data.executionData?.resultData?.metadata?.aiDepartmentWorkflowQueueName;
+		const { queueName } =
+			typeof pinnedQueueName === 'string'
+				? { queueName: pinnedQueueName }
+				: await this.poolConfigService.resolvePoolForExecution(data);
+		const queue = await this.scalingService.getOrCreateQueue(queueName);
+		const job = await queue.getJob(executionId);
+		if (!job || job.data.executionId !== executionId) return false;
+
+		return ['active', 'waiting', 'delayed', 'paused'].includes(await job.getState());
+	}
+
+	private async pinDepartmentQueue(data: IWorkflowExecutionDataProcess) {
+		const executionData = data.executionData;
+		const metadata = executionData?.resultData?.metadata;
+		if (
+			!executionData ||
+			typeof metadata?.aiDepartmentWorkflowInvocationId !== 'string' ||
+			typeof metadata.aiDepartmentWorkflowQueueName === 'string'
+		) {
+			return;
+		}
+
+		// Recovery must reuse the queue chosen before project pool settings can change.
+		if (!this.poolConfigService) {
+			const { PoolConfigService } = await import('@/scaling/pool-config.service.ee.js');
+			this.poolConfigService = Container.get(PoolConfigService);
+		}
+		const { queueName } = await this.poolConfigService.resolvePoolForExecution(data);
+		executionData.resultData.metadata = {
+			...metadata,
+			aiDepartmentWorkflowQueueName: queueName,
+		};
 	}
 
 	/** Run the workflow in current process */
@@ -771,7 +821,17 @@ export class WorkflowRunner {
 		let job: Job | undefined;
 		let lifecycleHooks: ExecutionLifecycleHooks;
 		try {
-			const { queueName, poolName } = await this.poolConfigService.resolvePoolForExecution(data);
+			const pinnedQueueName =
+				data.executionData?.resultData?.metadata?.aiDepartmentWorkflowQueueName;
+			const { queueName, poolName } =
+				typeof pinnedQueueName === 'string'
+					? {
+							queueName: pinnedQueueName,
+							poolName: pinnedQueueName.startsWith(`${DEFAULT_QUEUE_NAME}-`)
+								? pinnedQueueName.slice(`${DEFAULT_QUEUE_NAME}-`.length)
+								: undefined,
+						}
+					: await this.poolConfigService.resolvePoolForExecution(data);
 
 			const jobData: JobData = {
 				workflowId,
@@ -795,7 +855,14 @@ export class WorkflowRunner {
 				mcpToolInput: data.mcpToolInput,
 			};
 
-			job = await this.scalingService.addJob(jobData, { priority: realtime ? 50 : 100, queueName });
+			const isDepartmentWorkflowInvocation =
+				typeof data.executionData?.resultData?.metadata?.aiDepartmentWorkflowInvocationId ===
+				'string';
+			job = await this.scalingService.addJob(jobData, {
+				priority: realtime ? 50 : 100,
+				queueName,
+				...(isDepartmentWorkflowInvocation ? { jobId: executionId } : {}),
+			});
 
 			lifecycleHooks = getLifecycleHooksForScalingMain(data, executionId);
 

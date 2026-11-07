@@ -1,7 +1,7 @@
 # Goals, Work, and Attempts: Contracts
 
 **Contract version**: 1
-**Status**: Approved design contract v1. Owner gates and implementation remain open. Existing routes implement planning, direct start, snapshot reconciliation, cancellation, and review. The Paperclip parity review requires an Agents-owned wake/claim/action contract before those routes can be called parity complete.
+**Status**: Approved design contract v1. The internal Agents-owned work boundary is implemented. G1 runtime, C3 recovery, and provider acceptance remain open. See the feature contract evidence before enabling a runtime.
 
 ## HTTP contract
 
@@ -18,6 +18,7 @@ Base path: `/rest/projects/:projectId/ai-departments/:departmentId`.
 | POST | /work/:workId/retry | Same start permissions; blocked work with no current claim |
 | POST | /work/:workId/cancel | `agent:update`; active attempts additionally require `agent:execute` and owner access |
 | POST | /work/:workId/review | `agent:update`; accept or return one current result |
+| POST | /work/:workId/review/reopen | `agent:update`; return a stalled review to ready with an audit reason; never accepts the result |
 | GET | /work/:workId/history; /work/:workId/attempts | `agent:read`; safe metadata only |
 | GET | /work/:workId/activity | `agent:read`; ordered safe activity entries |
 | GET | /work/:workId/relationships | `agent:list`; parent, children, and blockers |
@@ -29,31 +30,36 @@ Command lookup uses GET /rest/projects/:projectId/ai-department-commands/:reques
 
 Commands contain `requestId`; changes to existing records also contain `expectedVersion`. Creation has no prior version. A repeat with the same identity and payload returns its stored result even if the original expected version is now old. Check current access before returning that result. A changed payload with a reused key returns 409.
 
-Assignment to ready work, readiness, review return, completed handoff, or explicit start of ready work returns an acknowledgment for durable eligibility and a wake intent. It does not claim the work or start a run. The Agent owner lists eligible work and atomically claims it. Start returns 202 with work version, attemptId, and dispatch state. It never promises that the owner process already runs. A successful run alone does not complete work; an Agent must submit a result under its current claim. Cancellation without an active attempt returns the committed cancelled work. Cancellation with an active attempt returns 202 with a pending flag until owner confirmation. Review body is `{ requestId, expectedVersion, attemptId, decision, reason? }`.
+Assignment to ready work, readiness, review return or reopen, completed handoff, or explicit start of ready work returns an acknowledgment for durable eligibility and a wake intent. It does not claim the work or start a run. The Agent owner lists eligible work and atomically claims it. Start returns 202 with work version, attemptId, and dispatch state. It never promises that the owner process already runs. A successful run alone does not complete work; an Agent must submit a result under its current claim. Cancellation without an active attempt returns the committed cancelled work. Cancellation with an active attempt returns 202 with a pending flag until owner confirmation. A staged review body is `{ requestId, expectedVersion, attemptId, resultId, reviewRoundId, stageId, expectedReviewVersion, decision, reason? }`. The server checks stage, result, round version, requester filter, participant eligibility, terminal attempt, and current `agent:update` access. The attempts response exposes result and round IDs, active stage ID, and round version for the current review. Legacy single-stage rounds may omit stage identity only when the persisted result identifies one unambiguous stage. The response returns the next stage, round status, round version, and allowed actions. Reopen body is `{ requestId, expectedVersion, reason }`; it requires a terminal attempt and no active claim.
+
+`GET /work/{workId}/review/decisions` returns the append-only decision history for the work item under `agent:read`. It includes stage, result, reviewer, decision, reason, prior review version, and timestamp. It includes both migrated legacy decisions and staged decisions.
+
+A committed help response may also make blocked Work ready after the prior attempt is terminal and all blockers are resolved. Preserve the assignee and use the same durable eligibility generation and coalesced wake contract as other ready transitions. Do not wake while stop state is unknown or a blocker remains.
 
 400 means invalid input or transition. 403 means insufficient current authority. 404 hides inaccessible cross-project records. 409 means stale version, conflicting command identity, or active-attempt conflict. An unavailable executor returns a safe blocked reason and creates no new owner execution.
 
-## Agents-owned work owner contract, proposed version 2
+## Agents-owned work owner contract
 
-This internal contract must be implemented by the Agents module; it is not an existing public n8n API. The current adapter only queues hidden chat and polls snapshots, so it does not satisfy this contract.
+This is an internal contract, not a public n8n API. Agents owns runtime identity, queue acceptance, execution lookup, stop receipts, and runtime snapshots. AI Department owns work eligibility, lane admission, claims, work actions, and business transitions. The Agents module exposes owner ports for these operations and verifies each runtime context before it calls a work action.
 
-| Operation | Required result |
+| Operation | Owner and behavior |
 |---|---|
-| wake(wakeKey, memberRef, workRef, reason) | durable accepted/coalesced wake; no implicit execution |
-| listAssigned(agentContext, cursor) | only work visible to the currently authorized Agent/member binding |
-| claim(workRef, runRef, expectedVersion, lease) | atomic claim or current claim conflict; stale run cannot take over |
-| renew/reclaim/release(claimRef, runRef) | lease-aware renewal/recovery/handoff with current access checks |
-| report(claimRef, runRef, expectedVersion, action) | append progress/comment/block/result/review-request activity and a business transition where allowed |
-| dispatch(dispatchKey, attemptContext) / lookup(dispatchKey) | accepted owner execution, definite rejection, confirmed absence, or unknown |
-| requestStop(ownerExecutionRef, commandId) | request acknowledgment, not terminal cancellation |
-| snapshot(ownerExecutionRef) | authorized current runtime phase/outcome and last sequence; never a business result by itself |
-| Snapshot ingestion | Sequence-checked, idempotent attempt receipts; older attempts cannot change current work. Native approval references remain with Agents. |
+| Eligibility and wake | AI Department records an eligibility generation and lane wake. Agents accepts or coalesces the durable queue message. A wake does not claim work or start a run. |
+| `DepartmentWorkInbox.listAssigned(authority, query)` | AI Department returns ready work for the verified project, member, executor, and binding revision. The cursor is lane-bound. |
+| `DepartmentWorkActions.executeToolAction(context, requestId, action)` | Agents builds context from the host execution and stable tool-call ID. AI Department checks the attempt, binding, access, version, blockers, and current claim before it applies a work action. |
+| Claim, renew, reclaim, release | AI Department owns atomic claim changes and five-minute leases. A different execution cannot take over the same attempt. A retry after confirmed stop uses a new attempt and claim generation. |
+| `dispatch(context)` / `lookup(context)` | Agents returns accepted, rejected, absent, or unknown for the stable dispatch key. Unknown acceptance keeps the attempt reserved. |
+| `requestStop(ownerRef, commandId, reason, authorityContext)` | Agents records an idempotent, correlated stop receipt. An acknowledgment does not confirm termination. A scoped control-plane authority can request stop after access revocation. |
+| `snapshot(ownerRef, authorityContext)` | Agents returns the correlated runtime phase, durable sequence, and safe outcome reference. Only a terminal snapshot confirms stop. |
+| Reconciliation | AI Department consumes ordered snapshots and owner receipts. Duplicate snapshots have no second effect. An older attempt cannot change current work. |
 
-The persisted key is stable across transport retries. The owner must not treat an expired worker lease as permission to start a second execution. Department reconciliation may redispatch only after the owner confirms absence under its deduplication protocol.
+The dispatch key stays stable across transport retries. An unknown acknowledgment keeps the lane reserved. Reconciliation may retry dispatch only after owner lookup returns authoritative absence. Lease expiry denies work actions. It does not authorize a second runtime.
 
-Every owner action carries schemaVersion, projectId, departmentId, workId, binding version, claimRef/runRef where relevant, stable command identity, and expected work version. Derive Agent/member identity from the authenticated runtime context; never trust a caller-supplied actor ID. Validate project access and the current binding at mutation time. Record actor, time, and safe summary. Do not pass prompts, credentials, or Agent checkpoints into the department store.
+The work tool does not accept actor, member, binding, attempt, or execution identity from model input. Agents derives execution and attempt context from the host run. AI Department resolves the attempt and current binding, then checks project access and expected work version for each mutation. It records the actor, time, and safe summary. Prompts, credentials, and Agent checkpoints stay with their owners.
 
-Department actions are available only to a run started from a verified department wake and its current attempt context. Do not attach claim/report tools to ordinary Agent chats, unrelated workflow runs, inline Agents, or delegated sub-agents. Tool schemas expose only the current work and permitted actions for that run. Owner access loss revokes the action context before the next mutation.
+The Agents adapter rejects ordinary chats, inline Agents, delegated runs, and unaccepted dispatches. It checks current project access and publication on each action. Access loss revokes work actions before the next mutation. Native tool approval and business review remain separate.
+
+These interfaces and controlled-owner checks establish the contract boundary. They do not close G1 runtime, C3 restart/revocation, or real-provider acceptance. Keep the workflow invocation gate disabled until its owner criteria pass.
 
 ## Archive guard shared with 002
 
@@ -71,4 +77,4 @@ The shared scopes are `agent:list/read/create/update`; execution also requires `
 
 T024 implements the internal `DepartmentWorkInbox.listAssigned(authority, query)` boundary. Authority binds project, actor, member, Agent and binding revision. The cursor binds that same lane and uses `(eligibleAt, workId)` keyset order. The response contains safe ready-work summaries, eligibility generation, binding availability, wake state and a next cursor. It does not expose attempt references. T029 connects this boundary to authenticated department-run context; T024 does not add a standalone public REST route.
 
-G1 and G2 owner-boundary designs are closed. Their runtime acceptance remains open. G2 owner implementation is required for handoff/recovery acceptance, but does not block the C2 inbox and coordination task slice. G3 blocks Agent-review authority only.
+G1 and G2 owner-boundary designs are closed. G2 live stop and durable sequence acceptance remain open; current live evidence only verifies receipt persistence and sweeper-driven recovery. G1 runtime acceptance and broader C2 handoff/release recovery acceptance remain open. G2 owner implementation does not block the C2 inbox and coordination task slice. G3 blocks Agent-review authority only.

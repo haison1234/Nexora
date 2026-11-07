@@ -1,5 +1,9 @@
 import { z } from 'zod';
 import { Z } from '../zod-class';
+import { aiDepartmentExpertiseTagsSchema } from './work';
+
+export * from './meetings';
+export * from './operations';
 
 export type AiDepartmentDto = {
 	id: string;
@@ -19,6 +23,7 @@ export type AiDepartmentMemberDto = {
 	name: string;
 	role: string;
 	managerMemberId: string | null;
+	expertiseTags: string[];
 	archived: boolean;
 	version: number;
 	executionState: 'unconfigured' | 'available' | 'unavailable';
@@ -54,6 +59,7 @@ export class CreateAiDepartmentMemberDto extends Z.class({
 	name: z.string().trim().min(1).max(128),
 	role: z.string().trim().min(1).max(128),
 	managerMemberId: z.string().max(36).nullable().optional(),
+	expertiseTags: aiDepartmentExpertiseTagsSchema.optional(),
 	requestId,
 }) {}
 
@@ -61,6 +67,7 @@ export class UpdateAiDepartmentMemberDto extends Z.class({
 	name: z.string().trim().min(1).max(128).optional(),
 	role: z.string().trim().min(1).max(128).optional(),
 	managerMemberId: z.string().max(36).nullable().optional(),
+	expertiseTags: aiDepartmentExpertiseTagsSchema.optional(),
 	expectedVersion: z.number().int().positive(),
 	requestId,
 }) {}

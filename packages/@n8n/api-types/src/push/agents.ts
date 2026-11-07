@@ -39,8 +39,14 @@ export type AgentMessageQueueUpdated = {
 	data: { projectId: string; agentId: string; threadId: string };
 };
 
+export type AiDepartmentOperationsUpdated = {
+	type: 'aiDepartmentOperationsUpdated';
+	data: { projectId: string; departmentId: string; revision: number };
+};
+
 export type AgentsPushMessage =
 	| AgentExecutionUpdated
 	| AgentUpdated
 	| AgentBackgroundJobsUpdated
-	| AgentMessageQueueUpdated;
+	| AgentMessageQueueUpdated
+	| AiDepartmentOperationsUpdated;

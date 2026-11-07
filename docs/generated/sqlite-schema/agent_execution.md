@@ -156,6 +156,7 @@ erDiagram
   varchar_36_ agentId FK
   varchar_255_ agentName
   datetime_3_ createdAt
+  INTEGER departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id PK
   varchar ownerId FK

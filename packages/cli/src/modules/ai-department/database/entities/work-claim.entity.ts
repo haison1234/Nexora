@@ -11,6 +11,7 @@ export class WorkClaim extends WithCreatedAt {
 	@Column({ type: 'varchar', length: 36 }) attemptId: string;
 	@Column({ type: 'varchar', length: 36 }) memberId: string;
 	@Column({ type: 'varchar', length: 36 }) executionId: string;
+	@Column({ type: 'int' }) claimGeneration: number;
 	@DateTimeColumn() leaseUntil: Date;
 	@DateTimeColumn() claimedAt: Date;
 	@DateTimeColumn({ nullable: true }) releasedAt: Date | null;

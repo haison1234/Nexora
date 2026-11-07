@@ -20,7 +20,7 @@ const settingsStore = useSettingsStore();
 
 <style lang="scss" module>
 .marker {
-	position: absolute;
+	position: fixed;
 	inset: 0;
 	pointer-events: none;
 	z-index: var(--e2e-test-mode-marker--z);

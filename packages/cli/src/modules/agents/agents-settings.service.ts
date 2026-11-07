@@ -69,6 +69,12 @@ export class AgentsSettingsService {
 
 			for (const item of await this.queue.listPending(threadId, ctx)) {
 				if (item.steeringExecutionId !== null) continue;
+				// The meeting owner must reconcile its own durable invocation receipt.
+				if (
+					item.message.origin?.source === 'ai-department-meeting' ||
+					item.message.origin?.source === 'ai-department-consultation'
+				)
+					continue;
 				if (!(await this.queue.removePending(threadId, item.id, ctx))) continue;
 				await this.messages.clearPendingInput(item.messageId, ctx);
 				removed.push(item);

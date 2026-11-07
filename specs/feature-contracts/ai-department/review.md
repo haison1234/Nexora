@@ -40,8 +40,10 @@ principal kind plus opaque ID, or the authorized-writers rule. Add SubmittedResu
 ReviewRound with workId, attemptId, resultId, requester kind/ID, policy revision,
 activeStageId, ordinal, status and version. Add ReviewStageDecision with roundId, stageId,
 resultId, actor kind/ID, decision, reason, priorVersion, command identity and timestamp.
-Unique round/stage terminal verdict prevents competing accepts. All transitions, receipts,
-activity and revision commit together. Result references remain owner-authorized.
+Round status is open, accepted, returned, or reopened. Unique round/stage terminal verdict
+prevents competing accepts. All transitions, receipts, activity and revision commit together.
+Result references remain owner-authorized. An audited coordinator reopen records a reason
+and creates new eligibility. It does not create an acceptance decision.
 
 Compatibility: do not silently reinterpret existing required/automatic records. Existing
 submitted results retain their captured policy. A new explicit revision applies to future
@@ -65,12 +67,14 @@ with terminal runtime and no active claim. It records no acceptance verdict.
 
 ## Source and spec mapping
 
-003 FR-007/FR-015 and US3 map here. `reviewWork()` checks current result, version,
-terminal attempt, and explicit submit, then records accept/return. Controller uses
-agent:update. Current model only has required/automatic and basic WorkReviewDecision;
-stages, typed reviewer/requester policy and review-round identity are absent.
-Paperclip `issue-review-policy.ts` resolves not_creator from the actor that requested
-review. Its policy names do not automatically supply n8n participant authority.
+003 FR-007/FR-015 and US3 map here. The implementation stores immutable policy revisions,
+submitted results, review rounds, and stage decisions as separate records. `reviewWork()`
+checks the current result, round version, active stage, requester filter, terminal attempt,
+and current project write access. The attempts API returns the IDs and active stage version
+needed by the UI. Controller uses `agent:update`. Agent review authority, reviewer-loss
+attention, and the real-owner acceptance matrix remain open. Paperclip
+`issue-review-policy.ts` resolves `not_creator` from the actor that requested review. Its
+policy names do not automatically supply n8n participant authority.
 
 ## Acceptance
 

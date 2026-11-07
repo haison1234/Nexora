@@ -58,6 +58,13 @@ describe('N8nActionToggle', () => {
 
 		expect(getByRole('button').querySelector('svg')).toHaveAttribute('data-icon', 'ellipsis-12');
 	});
+	it('gives the default trigger an accessible name', () => {
+		const { getByRole } = render(ActionToggle, {
+			props: { actions: [{ label: 'Duplicate', value: 'duplicate' }] },
+		});
+
+		expect(getByRole('button', { name: 'More options' })).toBeInTheDocument();
+	});
 	it('renders the icon at the default size', function () {
 		const { getByRole } = render(ActionToggle, {
 			props: {

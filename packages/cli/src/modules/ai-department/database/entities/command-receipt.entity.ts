@@ -1,3 +1,4 @@
+import { DateTimeColumn } from '@n8n/db';
 import { Column, Entity, Index, PrimaryColumn } from '@n8n/typeorm';
 
 @Entity({ name: 'ai_department_command_receipt' })
@@ -27,6 +28,6 @@ export class CommandReceipt {
 	@Column({ type: 'text', nullable: true })
 	responseJson: string | null;
 
-	@Column({ type: 'datetime' })
+	@DateTimeColumn()
 	createdAt: Date;
 }

@@ -2,6 +2,7 @@
 import type { ButtonVariant, UserAction } from '@n8n/design-system';
 import type { IUser } from 'n8n-workflow';
 import { useTemplateRef } from 'vue';
+import { useI18n } from '@n8n/i18n';
 
 import { N8nActionToggle, N8nIconButton } from '@n8n/design-system';
 
@@ -10,6 +11,7 @@ defineProps<{
 	disabled?: boolean;
 	variant?: ButtonVariant;
 }>();
+const i18n = useI18n();
 
 const emit = defineEmits<{
 	action: [id: string];
@@ -36,6 +38,7 @@ defineExpose({
 			<N8nIconButton
 				:disabled="disabled"
 				:class="[$style.buttonGroupDropdown]"
+				:aria-label="i18n.baseText('generic.moreOptions')"
 				icon="chevron-down"
 				:variant="variant ?? 'solid'"
 			/>

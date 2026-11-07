@@ -28,6 +28,8 @@ export interface ActionToggleProps<T extends string = string> {
 	theme?: 'default' | 'dark';
 	/** Size of the default trigger button. */
 	size?: ButtonSize;
+	/** Accessible label for the default trigger button. */
+	ariaLabel?: string;
 	/** Size of the ellipsis icon in the default trigger. It does not change with `size`. */
 	iconSize?: IconSize;
 	loading?: boolean;

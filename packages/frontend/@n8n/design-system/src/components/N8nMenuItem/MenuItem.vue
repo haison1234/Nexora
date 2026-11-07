@@ -20,6 +20,8 @@ const props = defineProps<{
 	compact?: boolean;
 	level?: number;
 	open?: boolean;
+	role?: 'menuitem' | 'link' | 'button';
+	trigger?: boolean;
 	ariaLabel?: string;
 	scrollLabelOnOverflow?: boolean;
 }>();
@@ -111,7 +113,13 @@ const tooltipPlacement = computed(() => {
 </script>
 
 <template>
-	<div :data-test-id="item.id" :class="$style.menuItemWrapper">
+	<div
+		:data-test-id="item.id"
+		:class="$style.menuItemWrapper"
+		:role="trigger ? 'button' : undefined"
+		:tabindex="trigger ? 0 : undefined"
+		:aria-label="trigger ? (props.ariaLabel ?? props.item.label) : undefined"
+	>
 		<N8nTooltip :placement="tooltipPlacement" :disabled="tooltipDisabled" :show-after="500">
 			<template #content>
 				{{ tooltipContent }}
@@ -119,8 +127,8 @@ const tooltipPlacement = computed(() => {
 
 			<N8nRoute
 				:id="item.id"
-				:to="to"
-				role="menuitem"
+				:to="trigger ? undefined : to"
+				:role="trigger ? undefined : (props.role ?? 'menuitem')"
 				:class="[
 					$style.menuItem,
 					{
@@ -130,8 +138,8 @@ const tooltipPlacement = computed(() => {
 						[$style.clipOverflowLabel]: props.scrollLabelOnOverflow,
 					},
 				]"
-				:aria-label="props.ariaLabel ?? props.item.label"
-				:aria-disabled="item.disabled"
+				:aria-label="trigger ? undefined : (props.ariaLabel ?? props.item.label)"
+				:aria-disabled="trigger ? undefined : item.disabled"
 				data-test-id="menu-item"
 				@click="handleClick"
 			>

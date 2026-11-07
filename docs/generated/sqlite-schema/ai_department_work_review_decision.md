@@ -6,7 +6,7 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE "ai_department_work_review_decision" ("id" varchar(36) PRIMARY KEY NOT NULL, "projectId" varchar(36) NOT NULL, "departmentId" varchar(36) NOT NULL, "workId" varchar(36) NOT NULL, "attemptId" varchar(36) NOT NULL, "actorId" varchar NOT NULL, "decision" varchar(16) NOT NULL, "reason" text, "priorVersion" integer NOT NULL, "createdAt" datetime(3) NOT NULL, CONSTRAINT "FK_10ed63817d599a4f4e4c9a4514f" FOREIGN KEY ("workId") REFERENCES "ai_department_work_item" ("id") ON DELETE CASCADE, CONSTRAINT "FK_2ae54882867478e2e1e63c94348" FOREIGN KEY ("attemptId") REFERENCES "ai_department_work_attempt" ("id") ON DELETE RESTRICT)
+CREATE TABLE "ai_department_work_review_decision" ("id" varchar(36) PRIMARY KEY NOT NULL, "projectId" varchar(36) NOT NULL, "departmentId" varchar(36) NOT NULL, "workId" varchar(36) NOT NULL, "attemptId" varchar(36) NOT NULL, "actorId" varchar NOT NULL, "decision" varchar(16) NOT NULL, "reason" text, "priorVersion" integer NOT NULL, "createdAt" datetime(3) NOT NULL, "reviewRoundId" varchar(36), "stageId" varchar(64), "resultId" varchar(36), CONSTRAINT "FK_2ae54882867478e2e1e63c94348" FOREIGN KEY ("attemptId") REFERENCES "ai_department_work_attempt" ("id") ON DELETE RESTRICT ON UPDATE NO ACTION, CONSTRAINT "FK_10ed63817d599a4f4e4c9a4514f" FOREIGN KEY ("workId") REFERENCES "ai_department_work_item" ("id") ON DELETE CASCADE ON UPDATE NO ACTION)
 ```
 
 </details>
@@ -24,14 +24,17 @@ CREATE TABLE "ai_department_work_review_decision" ("id" varchar(36) PRIMARY KEY 
 | priorVersion | INTEGER |  | false |  |  |  |
 | projectId | varchar(36) |  | false |  |  |  |
 | reason | TEXT |  | true |  |  |  |
+| resultId | varchar(36) |  | true |  |  |  |
+| reviewRoundId | varchar(36) |  | true |  |  |  |
+| stageId | varchar(64) |  | true |  |  |  |
 | workId | varchar(36) |  | false |  | [ai_department_work_item](ai_department_work_item.md) |  |
 
 ## Constraints
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
-| - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE |
-| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
+| - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
+| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (attemptId) REFERENCES ai_department_work_attempt (id) ON UPDATE NO ACTION ON DELETE RESTRICT MATCH NONE |
 | id | PRIMARY KEY | PRIMARY KEY (id) |
 | sqlite_autoindex_ai_department_work_review_decision_1 | PRIMARY KEY | PRIMARY KEY (id) |
 
@@ -60,6 +63,9 @@ erDiagram
   INTEGER priorVersion
   varchar_36_ projectId
   TEXT reason
+  varchar_36_ resultId
+  varchar_36_ reviewRoundId
+  varchar_64_ stageId
   varchar_36_ workId FK
 }
 "ai_department_work_attempt" {
@@ -83,15 +89,26 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  datetime_3_ reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  TEXT reviewStagesJson
   TEXT safeSummary
   datetime_3_ startedAt
+  varchar_36_ submittedResultId
   datetime_3_ updatedAt
   varchar_36_ workId FK
+  TEXT workflowCapabilitiesJson
+  TEXT workflowIdsJson
 }
 "ai_department_work_item" {
+  varchar_36_ assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   datetime_3_ createdAt
   varchar_36_ currentAttemptId FK
+  INTEGER currentReviewStageIndex
   varchar_36_ departmentId FK
   datetime_3_ dueAt
   varchar_36_ goalId FK
@@ -100,6 +117,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  TEXT reviewStagesJson
   varchar_24_ state
   datetime_3_ updatedAt
   INTEGER version

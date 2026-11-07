@@ -156,8 +156,8 @@ const {
 		emit('agent-changed');
 	},
 });
-const { isEnabled: isN8nChatEnabled, withN8nChat } = useN8nChatChannel();
-const channelList = computed(() => withN8nChat(catalog.value ?? []));
+const { withN8nChat } = useN8nChatChannel();
+const channelList = computed(() => withN8nChat(catalog.value ?? [], { includeWhenDisabled: true }));
 
 const credentialNamesById = ref<Record<string, string>>({});
 const channelModalOpen = ref(false);
@@ -197,7 +197,7 @@ function channelRuntimeErrorMessage(channel: string): string {
 // n8n Chat always shows, even when it is not in the agent config.
 const channelRows = computed(() =>
 	[
-		...(isN8nChatEnabled.value ? [N8N_CHAT_INTEGRATION_TYPE] : []),
+		N8N_CHAT_INTEGRATION_TYPE,
 		...props.connectedTriggers.filter((channel) => channel !== N8N_CHAT_INTEGRATION_TYPE),
 	].map((channel) => {
 		const integration = channelList.value.find(({ type }) => type === channel);
@@ -232,7 +232,9 @@ async function loadChannelDetails() {
 	// exists. The catalog and credential list below are project-scoped and still
 	// load, so the channel picker works on an unsaved agent.
 	if (!props.agentUnsaved) {
-		await fetchStatus(withN8nChat(integrations).map(({ type }) => type));
+		await fetchStatus(
+			withN8nChat(integrations, { includeWhenDisabled: true }).map(({ type }) => type),
+		);
 	}
 	openTeamsAfterFileAccessConsent(integrations);
 

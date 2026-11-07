@@ -117,7 +117,7 @@ const isEditMode = computed(() => currentView.value.endsWith('_edit'));
 const isN8nChatSelected = computed(() => selectedChannelType.value === N8N_CHAT_INTEGRATION_TYPE);
 
 const { withN8nChat } = useN8nChatChannel();
-const channelList = computed(() => withN8nChat(catalog.value ?? []));
+const channelList = computed(() => withN8nChat(catalog.value ?? [], { includeWhenDisabled: true }));
 const n8nChatAvailableLabel = computed(() => i18n.baseText('agents.channels.n8nChat.available'));
 const removeChannelLabel = computed(() =>
 	i18n.baseText(
@@ -615,7 +615,7 @@ async function loadChannelState() {
 	const integrations = await ensureLoaded(props.projectId).catch(() => catalog.value ?? []);
 	await Promise.all([
 		// n8n Chat is not in the catalog, but its status must refresh too.
-		loadSharedChannelState(withN8nChat(integrations)),
+		loadSharedChannelState(withN8nChat(integrations, { includeWhenDisabled: true })),
 		...integrations.map(({ type }) => runtimeFor(type).load()),
 	]);
 	if (isEditMode.value) {

@@ -13,6 +13,9 @@
 | priorVersion | integer |  | false |  |  |  |
 | projectId | varchar(36) |  | false |  |  |  |
 | reason | text |  | true |  |  |  |
+| resultId | varchar(36) |  | true |  |  |  |
+| reviewRoundId | varchar(36) |  | true |  |  |  |
+| stageId | varchar(64) |  | true |  |  |  |
 | workId | varchar(36) |  | false |  | [public.ai_department_work_item](public.ai_department_work_item.md) |  |
 
 ## Constraints
@@ -57,6 +60,9 @@ erDiagram
   integer priorVersion
   varchar_36_ projectId
   text reason
+  varchar_36_ resultId
+  varchar_36_ reviewRoundId
+  varchar_64_ stageId
   varchar_36_ workId FK
 }
 "public.ai_department_work_attempt" {
@@ -80,15 +86,26 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  timestamp_3__with_time_zone reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  text reviewStagesJson
   text safeSummary
   timestamp_3__with_time_zone startedAt
+  varchar_36_ submittedResultId
   timestamp_3__with_time_zone updatedAt
   varchar_36_ workId FK
+  text workflowCapabilitiesJson
+  text workflowIdsJson
 }
 "public.ai_department_work_item" {
+  uuid assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   timestamp_3__with_time_zone createdAt
   varchar_36_ currentAttemptId FK
+  integer currentReviewStageIndex
   varchar_36_ departmentId FK
   timestamp_3__with_time_zone dueAt
   varchar_36_ goalId FK
@@ -97,6 +114,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  text reviewStagesJson
   varchar_24_ state
   timestamp_3__with_time_zone updatedAt
   integer version

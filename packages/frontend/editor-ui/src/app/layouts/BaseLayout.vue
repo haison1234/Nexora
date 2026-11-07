@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { onMounted, useTemplateRef } from 'vue';
+import { useI18n } from '@n8n/i18n';
+import E2ETestModeMarker from '@/app/components/app/E2ETestModeMarker.vue';
 
 const layoutRef = useTemplateRef('layout');
 
 const emit = defineEmits<{
 	mounted: [Element];
 }>();
+
+const props = withDefaults(defineProps<{ mainLandmark?: boolean }>(), { mainLandmark: true });
+const i18n = useI18n();
 
 onMounted(() => {
 	if (layoutRef.value) emit('mounted', layoutRef.value);
@@ -20,18 +25,33 @@ onMounted(() => {
 		<header v-if="!!$slots.header" id="header" :class="$style.header">
 			<slot name="header" />
 		</header>
-		<aside v-if="!!$slots.sidebar" id="sidebar" :class="$style.sidebar">
+		<aside
+			v-if="!!$slots.sidebar"
+			id="sidebar"
+			:aria-label="i18n.baseText('mainSidebar.landmark')"
+			:class="$style.sidebar"
+		>
 			<slot name="sidebar" />
 		</aside>
-		<main id="content" :class="$style.content">
+		<component
+			:is="props.mainLandmark ? 'main' : 'div'"
+			:id="props.mainLandmark ? 'content' : undefined"
+			:class="$style.content"
+		>
 			<div :class="$style.contentWrapper">
 				<slot />
 			</div>
 			<div v-if="!!$slots.footer" :class="$style.contentFooter">
 				<slot name="footer" />
 			</div>
-		</main>
-		<aside v-if="!!$slots.aside" id="aside" :class="$style.aside">
+			<E2ETestModeMarker v-if="props.mainLandmark" />
+		</component>
+		<aside
+			v-if="!!$slots.aside"
+			id="aside"
+			:aria-label="i18n.baseText('layout.supplementary')"
+			:class="$style.aside"
+		>
 			<slot name="aside" />
 		</aside>
 		<slot name="overlays" />

@@ -44,6 +44,7 @@ erDiagram
   varchar_36_ agentId FK
   varchar_255_ agentName
   timestamp_3__with_time_zone createdAt
+  integer departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id
   uuid ownerId FK

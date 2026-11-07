@@ -5,6 +5,7 @@ exports[`N8nDropdownMenu > disabled state > should render trigger with disabled 
   aria-disabled="true"
   aria-expanded="false"
   aria-haspopup="menu"
+  aria-label="More options"
   aria-live="polite"
   class="button button ghost xsmall iconOnly disabled is-disabled trigger"
   data-disabled=""
@@ -53,6 +54,7 @@ exports[`N8nDropdownMenu > rendering > should render default trigger button 1`] 
 <button
   aria-expanded="false"
   aria-haspopup="menu"
+  aria-label="More options"
   aria-live="polite"
   class="button button ghost xsmall iconOnly trigger"
   data-icon-only="true"
@@ -99,6 +101,7 @@ exports[`N8nDropdownMenu > rendering > should render with emoji activator 1`] = 
 <button
   aria-expanded="false"
   aria-haspopup="menu"
+  aria-label="More options"
   aria-live="polite"
   class="button button ghost xsmall iconOnly trigger"
   data-icon-only="true"

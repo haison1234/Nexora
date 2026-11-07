@@ -1,3 +1,4 @@
+import { DateTimeColumn } from '@n8n/db';
 import { Column, Entity, Index, PrimaryColumn } from '@n8n/typeorm';
 
 @Entity({ name: 'ai_department_directory_change' })
@@ -24,6 +25,6 @@ export class DirectoryChange {
 	@Column({ type: 'int' })
 	entityVersion: number;
 
-	@Column({ type: 'datetime' })
+	@DateTimeColumn()
 	createdAt: Date;
 }

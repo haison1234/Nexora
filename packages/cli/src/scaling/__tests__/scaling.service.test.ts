@@ -905,6 +905,61 @@ describe('ScalingService', () => {
 			});
 		});
 
+		it('passes a stable job id to Bull when provided', async () => {
+			await scalingService.setupQueue();
+			queue.add.mockResolvedValue(mock<Job>({ id: 'execution-123' }));
+
+			const jobData = mock<JobData>({ executionId: 'execution-123' });
+			await scalingService.addJob(jobData, { priority: 100, jobId: 'execution-123' });
+
+			expect(queue.add).toHaveBeenCalledWith(JOB_TYPE_NAME, jobData, {
+				priority: 100,
+				removeOnComplete: 0,
+				removeOnFail: 0,
+				jobId: 'execution-123',
+			});
+		});
+
+		it('reuses a delayed stable job from any configured queue', async () => {
+			await scalingService.setupQueue();
+			const existingJob = mock<Job>({
+				id: 'execution-123',
+				data: { executionId: 'execution-123' },
+				getState: vi.fn().mockResolvedValue('delayed'),
+			});
+			queue.getJob.mockResolvedValue(existingJob);
+
+			const jobData = mock<JobData>({ executionId: 'execution-123' });
+			await expect(
+				scalingService.addJob(jobData, {
+					priority: 100,
+					queueName: 'another-queue',
+					jobId: 'execution-123',
+				}),
+			).resolves.toBe(existingJob);
+
+			expect(queue.getJob).toHaveBeenCalledWith('execution-123');
+			expect(queue.add).not.toHaveBeenCalled();
+		});
+
+		it('removes a terminal stable job before dispatching the native execution again', async () => {
+			await scalingService.setupQueue();
+			const existingJob = mock<Job>({
+				id: 'execution-123',
+				data: { executionId: 'execution-123' },
+				getState: vi.fn().mockResolvedValue('failed'),
+				remove: vi.fn().mockResolvedValue(undefined),
+			});
+			queue.getJob.mockResolvedValueOnce(existingJob);
+			queue.add.mockResolvedValue(mock<Job>({ id: 'execution-123' }));
+
+			const jobData = mock<JobData>({ executionId: 'execution-123' });
+			await scalingService.addJob(jobData, { priority: 100, jobId: 'execution-123' });
+
+			expect(existingJob.remove).toHaveBeenCalledOnce();
+			expect(queue.add).toHaveBeenCalledOnce();
+		});
+
 		it('should pass configured retention counts to Bull', async () => {
 			globalConfig.executions.queueRetention.keepLastCompleted = 1000;
 			globalConfig.executions.queueRetention.keepLastFailed = 500;
@@ -1317,10 +1372,32 @@ describe('ScalingService', () => {
 	});
 
 	describe('recoverFromQueue', () => {
+		it('keeps a department child with unknown queue acceptance in new status', async () => {
+			await scalingService.setupQueue();
+			executionRepository.getInProgressExecutionIds.mockResolvedValue(['123']);
+			queue.getJobs.mockResolvedValue([]);
+			executionPersistence.findSingleExecution.mockResolvedValue({
+				status: 'new',
+				data: {
+					resultData: { metadata: { aiDepartmentWorkflowInvocationId: 'invocation-a' } },
+				},
+			} as never);
+
+			await scalingService.recoverFromQueue();
+
+			expect(executionCrashService.markAsCrashed).not.toHaveBeenCalled();
+			expect(executionPersistence.findSingleExecution).toHaveBeenCalledWith('123', {
+				includeData: true,
+				unflattenData: true,
+				where: { status: 'new' },
+			});
+		});
+
 		it('should mark running executions as crashed if they are missing from the queue and queue is empty', async () => {
 			await scalingService.setupQueue();
 			executionRepository.getInProgressExecutionIds.mockResolvedValue(['123']);
 			queue.getJobs.mockResolvedValue([]);
+			executionPersistence.findSingleExecution.mockResolvedValue(undefined);
 
 			await scalingService.recoverFromQueue();
 
@@ -1344,6 +1421,17 @@ describe('ScalingService', () => {
 
 			await scalingService.recoverFromQueue();
 
+			expect(executionCrashService.markAsCrashed).not.toHaveBeenCalled();
+		});
+
+		it('does not treat a delayed retry job as a missing execution', async () => {
+			await scalingService.setupQueue();
+			executionRepository.getInProgressExecutionIds.mockResolvedValue(['123']);
+			queue.getJobs.mockResolvedValue([mock<Job>({ data: { executionId: '123' } })]);
+
+			await scalingService.recoverFromQueue();
+
+			expect(queue.getJobs).toHaveBeenCalledWith(['active', 'waiting', 'delayed']);
 			expect(executionCrashService.markAsCrashed).not.toHaveBeenCalled();
 		});
 	});

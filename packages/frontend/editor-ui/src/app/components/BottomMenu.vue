@@ -191,6 +191,7 @@ function onLogout() {
 							:item="item"
 							:compact="isCollapsed"
 							:active="isHelpOpen"
+							trigger
 							@click="() => handleSelect(item.id)"
 						/>
 					</template>
@@ -209,17 +210,14 @@ function onLogout() {
 					content-test-id="main-sidebar-settings-list"
 				>
 					<template #trigger>
-						<!-- The menu item renders an anchor without href, which cannot take focus. The
-						     role and tabindex land on its wrapper, next to the aria attributes Reka sets,
-						     so the keyboard can open the menu and gets its focus back on close. -->
+						<!-- The wrapper is the trigger so it can receive focus and Reka's ARIA state. -->
 						<N8nMenuItem
 							:data-test-id="`main-sidebar-${item.id}`"
 							:class="$style.menuTrigger"
 							:item="item"
 							:compact="isCollapsed"
 							:active="isSettingsOpen"
-							role="button"
-							tabindex="0"
+							trigger
 							@click="() => handleSelect(item.id)"
 						/>
 					</template>
@@ -264,6 +262,7 @@ function onLogout() {
 					:data-test-id="`main-sidebar-${item.id}`"
 					:item="item"
 					:compact="isCollapsed"
+					:role="item.route || item.link ? 'link' : 'menuitem'"
 					:class="item.id === 'resource-center' ? $style.resourceCenterMenuItem : undefined"
 					@click="() => handleSelect(item.id)"
 				/>

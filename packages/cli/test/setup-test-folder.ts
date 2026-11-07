@@ -7,8 +7,8 @@ process.env.N8N_ENCRYPTION_KEY = 'test_key';
 const baseDir = join(tmpdir(), 'n8n-tests/');
 mkdirSync(baseDir, { recursive: true });
 
-const testDir = mkdtempSync(baseDir);
-mkdirSync(join(testDir, '.n8n'));
+const testDir = process.env.N8N_TEST_DEPARTMENT_RESTART_USER_FOLDER ?? mkdtempSync(baseDir);
+mkdirSync(join(testDir, '.n8n'), { recursive: true });
 process.env.N8N_USER_FOLDER = testDir;
 process.env.N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS = 'true';
 

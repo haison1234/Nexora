@@ -56,6 +56,7 @@ import {
 	productionChatMemoryResourceId,
 } from './utils/agent-memory-scope';
 import {
+	canContinueDepartmentWorkThread,
 	canContinueThreadInN8nChat,
 	canContinueThreadInPreview,
 	canUseTopLevelDraftThread,
@@ -1041,6 +1042,7 @@ export class AgentExecutionService {
 		agentId: string,
 		userId: string,
 		sessionMode: AgentSessionMode,
+		departmentWork = false,
 	): Promise<boolean> {
 		const thread = await this.findThreadById(threadId);
 		if (!thread)
@@ -1059,12 +1061,11 @@ export class AgentExecutionService {
 		)
 			return false;
 		const sources = await this.agentExecutionRepository.findFirstSourceByThreadIds([threadId]);
-		return canContinueThreadInN8nChat(
-			thread,
-			userId,
-			sources.get(threadId),
-			this.systemAgents.has(thread.agentId),
-		);
+		const source = sources.get(threadId);
+		const isSystemAgent = this.systemAgents.has(thread.agentId);
+		return departmentWork
+			? canContinueDepartmentWorkThread(thread, userId, source, isSystemAgent)
+			: canContinueThreadInN8nChat(thread, userId, source, isSystemAgent);
 	}
 
 	/** A session ID without a thread is free only when no other memory scope uses it. */

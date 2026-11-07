@@ -3,7 +3,7 @@
 **Feature ID**: `003-ai-department-work-management`
 **Feature Branch**: Not created. The feature ID is not a branch claim.
 **Created**: 2026-11-02
-**Status**: Draft; Feature Contract v1 decisions approved on 2026-11-03. G1/G2 owner-boundary designs are closed. G2 owner implementation and runtime acceptance remain open; they gate handoff/recovery acceptance, not C2 planning/inbox tasks.
+**Status**: Draft; Feature Contract v1 decisions approved on 2026-11-03. G1/G2 owner-boundary designs are closed. Controlled stop checks and same-process live Ollama stop pass. Separate restart evidence covers receipt recovery after the old model process ends; no model request must survive restart. Durable sequence acceptance, G1 runtime acceptance, and remaining C3 acceptance stay open. See `specs/feature-contracts/ai-department/evidence.md`.
 **Input**: Define goals, assign work to AI members, follow attempts, and review results.
 **Design**: [Shared interface](../AI-DEPARTMENT-DESIGN.md)
 
@@ -120,6 +120,7 @@ As a reviewer, I accept or return a result under the work item's review policy.
 | running | Agent reports a result under automatic completion policy | done |
 | running | Runtime attempt fails or stops without a business result | blocked |
 | blocked | Coordinator resolves the reason and no claim is active | ready |
+| blocked | Authorized help response is committed after the prior attempt is terminal and no blocker remains | ready |
 | blocked | Existing valid claim resumes after resolution | running |
 | review | Reviewer accepts result | done |
 | review | Reviewer returns result with reason | ready |
@@ -179,4 +180,4 @@ Assignment/readiness, review return, completed handoff, and authorized explicit 
 
 Handoff names a destination and reason. Fence the old run, confirm its stop, then transfer and wake the destination. Lease expiry alone never permits another run to take over. Ordered business review stages use the approved C4 participant and actor filters.
 
-G1 ownership design is closed: AI Department owns lane generations, coalescing, and one-run admission; Agents owns durable idempotent per-dispatch queue acceptance, lookup, and missed-wake recovery. G1 runtime acceptance remains open. G2 owner stop/recovery design is closed in `specs/feature-contracts/ai-department/execution.md`; Agents implementation and restart/revocation proof remain open and gate handoff/recovery runtime acceptance. Review and real execution acceptance stay open.
+G1 ownership design is closed: AI Department owns lane generations, coalescing, and one-run admission; Agents owns durable idempotent per-dispatch queue acceptance, lookup, and missed-wake recovery. G1 runtime acceptance remains open. G2 owner stop/recovery design and controlled revocation test are complete. Live stop/restart acceptance remains open because the live execution became terminal through the sweeper after owner restart; see `specs/feature-contracts/ai-department/evidence.md`. G1 runtime acceptance and remaining C3 recovery cases remain open. Review and real execution acceptance stay open.

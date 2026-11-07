@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import type { TransactionRunner } from '@n8n/db';
 import { mock } from 'vitest-mock-extended';
 
@@ -5,6 +7,7 @@ import { ConflictError, NotFoundError } from '@n8n/errors';
 
 import type { AgentChatAttachmentService } from '../agent-chat-attachment.service';
 import { AgentMessageQueueService } from '../agent-message-queue.service';
+import { AgentMessageIdConflictError } from '../repositories/agent-message.repository';
 import type { AgentMessageSteeringService } from '../agent-message-steering.service';
 import type { AgentsSettingsService } from '../agents-settings.service';
 import type { AgentExecutionUpdateBroadcaster } from '../agent-execution-update-broadcaster';
@@ -24,6 +27,7 @@ import type { AgentRepository } from '../repositories/agent.repository';
 import { SystemAgentRegistry } from '../system-agents/system-agent-registry';
 import type { SystemAgentProvider } from '../system-agents/system-agent.types';
 import { SYSTEM_CHAT_SOURCE } from '../utils/agent-thread-access';
+import { queuedMessageId } from '../utils/queued-message-id';
 
 function makeThread(overrides: Partial<AgentExecutionThread> = {}): AgentExecutionThread {
 	return mock<AgentExecutionThread>({
@@ -36,6 +40,26 @@ function makeThread(overrides: Partial<AgentExecutionThread> = {}): AgentExecuti
 		taskId: null,
 		...overrides,
 	});
+}
+
+function createDepartmentInputHash(payload: {
+	message: string;
+	resourceId: string;
+	attachments?: unknown[];
+	departmentWorkflowIds?: string[];
+	departmentWorkflowCapabilities?: unknown[];
+}) {
+	return createHash('sha256')
+		.update(
+			JSON.stringify({
+				message: payload.message,
+				resourceId: payload.resourceId,
+				attachments: payload.attachments ?? [],
+				workflowIds: payload.departmentWorkflowIds ?? [],
+				workflowCapabilities: payload.departmentWorkflowCapabilities ?? [],
+			}),
+		)
+		.digest('hex');
 }
 
 describe('AgentMessageQueueService', () => {
@@ -79,6 +103,99 @@ describe('AgentMessageQueueService', () => {
 			settingsService,
 			systemAgents,
 		);
+	});
+
+	describe('department dispatch acceptance', () => {
+		const payload = {
+			kind: 'n8n_chat' as const,
+			userId: 'user-1',
+			messageId: 'dispatch-key-1',
+			message: 'Department instruction',
+			resourceId: 'resource-1',
+			hidden: true,
+		};
+
+		beforeEach(() => {
+			agentRepository.findByIdAndProjectId.mockResolvedValue(mock<ProjectAgent>({ name: 'Agent' }));
+			messages.createInput.mockRejectedValue(
+				new AgentMessageIdConflictError(
+					queuedMessageId('agent-1', 'thread-1', payload) ?? 'missing-message-id',
+				),
+			);
+		});
+
+		it('accepts a retry when the durable message has the same input hash', async () => {
+			const messageId = queuedMessageId('agent-1', 'thread-1', payload);
+			messages.findOriginById.mockResolvedValue({
+				source: 'ai-department',
+				departmentInputHash: createDepartmentInputHash(payload),
+			});
+
+			await expect(
+				service.enqueue({
+					agentId: 'agent-1',
+					projectId: 'project-1',
+					threadId: 'thread-1',
+					sessionMode: 'new',
+					source: 'ai-department',
+					payload,
+				}),
+			).resolves.toEqual({ status: 'duplicate' });
+			expect(messages.findOriginById).toHaveBeenCalledWith(messageId);
+		});
+
+		it('rejects a retry when the same dispatch key has different input', async () => {
+			messages.findOriginById.mockResolvedValue({
+				source: 'ai-department',
+				departmentInputHash: 'different-input-hash',
+			});
+
+			await expect(
+				service.enqueue({
+					agentId: 'agent-1',
+					projectId: 'project-1',
+					threadId: 'thread-1',
+					sessionMode: 'new',
+					source: 'ai-department',
+					payload,
+				}),
+			).rejects.toThrow(ConflictError);
+		});
+
+		it('rejects a retry when the pinned capability revision changed', async () => {
+			const capability = {
+				id: 'capability-1',
+				workflowId: 'workflow-1',
+				version: 2,
+				purpose: 'Approved task',
+				publishedVersionRef: 'published-v2',
+				triggerCompatibilityRef: 'execute-workflow-v1',
+				inputSchemaFingerprint: 'schema-v2',
+			};
+			const retryPayload = {
+				...payload,
+				departmentWorkflowIds: ['workflow-1'],
+				departmentWorkflowCapabilities: [capability],
+			};
+			messages.findOriginById.mockResolvedValue({
+				source: 'ai-department',
+				departmentInputHash: createDepartmentInputHash({
+					...retryPayload,
+					departmentWorkflowCapabilities: [{ ...capability, version: 1 }],
+				}),
+			});
+
+			await expect(
+				service.enqueue({
+					agentId: 'agent-1',
+					projectId: 'project-1',
+					threadId: 'thread-1',
+					sessionMode: 'new',
+					source: 'ai-department',
+					payload: retryPayload,
+				}),
+			).rejects.toThrow(ConflictError);
+		});
 	});
 
 	describe('prepareSessionStop', () => {

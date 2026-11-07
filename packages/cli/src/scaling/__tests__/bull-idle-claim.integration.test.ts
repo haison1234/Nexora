@@ -42,6 +42,17 @@ describe.skipIf(!REDIS_HOST || !REDIS_PORT)('idle worker job claim (real Redis)'
 			loadStaticData: false,
 		} as JobData);
 
+	const addDepartmentJob = async (queue: JobQueue) =>
+		await queue.add(
+			JOB_TYPE_NAME,
+			{
+				executionId: 'department-execution-1',
+				workflowId: 'department-workflow-1',
+				loadStaticData: false,
+			} as JobData,
+			{ jobId: 'department-execution-1' },
+		);
+
 	/** Sweep N marks the `active` jobs, and sweep N+1 fails the marked ones without a lock. */
 	const sweepTwice = async (queue: RawQueue) => {
 		for (let i = 0; i < 2; i++) {
@@ -52,6 +63,28 @@ describe.skipIf(!REDIS_HOST || !REDIS_PORT)('idle worker job claim (real Redis)'
 
 	beforeAll(() => {
 		control = new Redis({ host: REDIS_HOST, port: REDIS_PORT });
+	});
+
+	it('fences concurrent acceptance and duplicate recovery after queue client reconstruction', async () => {
+		const firstOwner = createQueue();
+		const concurrentOwner = createQueue();
+		await Promise.all([firstOwner.isReady(), concurrentOwner.isReady()]);
+		const [accepted, concurrent] = await Promise.all([
+			addDepartmentJob(firstOwner),
+			addDepartmentJob(concurrentOwner),
+		]);
+
+		// A restarted owner connects to the same persisted queue and retries its saved execution.
+		const recoveredOwner = createQueue();
+		await recoveredOwner.isReady();
+		const recovered = await addDepartmentJob(recoveredOwner);
+
+		expect(String(concurrent.id)).toBe(String(accepted.id));
+		expect(String(recovered.id)).toBe(String(accepted.id));
+		expect(await recoveredOwner.getJobCounts()).toMatchObject({ waiting: 1 });
+		expect(await recoveredOwner.getJob(String(accepted.id))).toMatchObject({
+			data: expect.objectContaining({ executionId: 'department-execution-1' }),
+		});
 	});
 
 	beforeEach(() => {

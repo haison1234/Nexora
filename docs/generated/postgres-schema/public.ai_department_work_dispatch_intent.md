@@ -73,10 +73,19 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  timestamp_3__with_time_zone reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  text reviewStagesJson
   text safeSummary
   timestamp_3__with_time_zone startedAt
+  varchar_36_ submittedResultId
   timestamp_3__with_time_zone updatedAt
   varchar_36_ workId FK
+  text workflowCapabilitiesJson
+  text workflowIdsJson
 }
 ```
 

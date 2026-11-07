@@ -152,6 +152,8 @@ export interface DropdownMenuProps<T = string, D = never> {
 	trigger?: DropdownMenuTrigger;
 	/** Icon or emoji for the default trigger button */
 	activatorIcon?: IconOrEmoji;
+	/** Accessible label for the default trigger button */
+	activatorLabel?: string;
 	/** When true, prevents the user from interacting with dropdown */
 	disabled?: boolean;
 	/** Whether to teleport the dropdown to body */

@@ -185,6 +185,10 @@ export type PubSubCommandMap = {
 		excludePushRef?: string;
 	};
 
+	'relay-ai-department-operations-update': {
+		data: PushPayload<'aiDepartmentOperationsUpdated'>;
+	};
+
 	/** Ask mains to wake the agent run a finished sub-execution was parked on. */
 	'resume-agent-workflow-tool': {
 		agentRun: RelatedAgentRun;

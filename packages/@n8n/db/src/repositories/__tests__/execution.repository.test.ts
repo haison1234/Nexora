@@ -40,6 +40,19 @@ describe('ExecutionRepository', () => {
 		sharedWorkflowRepository.findOwnerProjectsByWorkflowIds.mockResolvedValue(new Map());
 	});
 
+	it('finds a retained execution by its native deduplication key', async () => {
+		entityManager.findOne.mockResolvedValueOnce({ id: 'exec-1' });
+
+		await expect(executionRepository.findExecutionIdByDeduplicationKey('key-1')).resolves.toBe(
+			'exec-1',
+		);
+		expect(entityManager.findOne).toHaveBeenCalledWith(ExecutionEntity, {
+			select: { id: true },
+			where: { deduplicationKey: 'key-1' },
+			withDeleted: true,
+		});
+	});
+
 	describe('countInWorkflows', () => {
 		test('should get executions matching all filter parameters', async () => {
 			const mockCount = 20;

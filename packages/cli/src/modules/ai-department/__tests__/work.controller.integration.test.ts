@@ -2,13 +2,18 @@ import { createTeamProject, linkUserToProject } from '@n8n/backend-test-utils';
 import { randomUUID } from 'node:crypto';
 
 import type { Project } from '@n8n/db';
+import { Container } from '@n8n/di';
 import { createCustomRoleWithScopeSlugs } from '@test-integration/db/roles';
-import { createMember } from '@test-integration/db/users';
+import { createMember, createOwner } from '@test-integration/db/users';
 import type { SuperAgentTest } from '@test-integration/types';
 import { setupTestServer } from '@test-integration/utils';
+import { ProjectService } from '@/services/project.service.ee';
 
 describe('AI Department work API', () => {
-	const server = setupTestServer({ endpointGroups: ['ai'], modules: ['agents', 'ai-department'] });
+	const server = setupTestServer({
+		endpointGroups: ['ai'],
+		modules: ['agents', 'ai-department'],
+	});
 	let project: Project;
 	let otherProject: Project;
 	let editor: SuperAgentTest;
@@ -89,5 +94,35 @@ describe('AI Department work API', () => {
 				`/projects/${project.id}/ai-departments/${departmentResponse.body.data.id}/work?state=unknown`,
 			)
 			.expect(400);
+	});
+
+	it('denies help answers after the user loses project access', async () => {
+		const owner = await createOwner();
+		const helpProject = await createTeamProject('AI Department help access loss', owner);
+		const editorRole = await createCustomRoleWithScopeSlugs(
+			['agent:list', 'agent:read', 'agent:create', 'agent:update'],
+			{ roleType: 'project' },
+		);
+		const answerer = await createMember();
+		await linkUserToProject(answerer, helpProject, editorRole.slug);
+		const answererAgent = server.authAgentFor(answerer);
+		const department = await answererAgent
+			.post(`/projects/${helpProject.id}/ai-departments`)
+			.send({ name: `Help-${randomUUID()}`, requestId: randomUUID() })
+			.expect(200);
+		const departmentId = department.body.data.id as string;
+		const workId = randomUUID();
+		const helpRequestId = randomUUID();
+
+		await answererAgent
+			.get(`/projects/${helpProject.id}/ai-departments/${departmentId}`)
+			.expect(200);
+		await Container.get(ProjectService).deleteUserFromProject(owner, helpProject.id, answerer.id);
+		await answererAgent
+			.post(
+				`/projects/${helpProject.id}/ai-departments/${departmentId}/work/${workId}/help-requests/${helpRequestId}/answer`,
+			)
+			.send({ answer: 'No longer authorized.', expectedVersion: 1, requestId: randomUUID() })
+			.expect(403);
 	});
 });

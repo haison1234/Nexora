@@ -114,7 +114,11 @@ export class ExecutionPersistence {
 		} = { blobTarget: null };
 		try {
 			const executionId = await this.executionRepository.runInTransaction(ctx, async (tx) => {
-				reclaimedTombstone = await this.reclaimTombstone(tx, executionEntity.deduplicationKey);
+				const departmentInvocationId =
+					rawData?.resultData?.metadata?.aiDepartmentWorkflowInvocationId;
+				if (typeof departmentInvocationId !== 'string') {
+					reclaimedTombstone = await this.reclaimTombstone(tx, executionEntity.deduplicationKey);
+				}
 				const { identifiers } = await tx.insert(ExecutionEntity, executionEntity);
 				const executionId = String(identifiers[0].id);
 				const ref = { workflowId: id, executionId };
@@ -343,6 +347,10 @@ export class ExecutionPersistence {
 		if (!entity) return undefined;
 
 		return await this.readSingleExecution(entity, options);
+	}
+
+	async findExecutionIdByDeduplicationKey(deduplicationKey: string): Promise<string | null> {
+		return await this.executionRepository.findExecutionIdByDeduplicationKey(deduplicationKey);
 	}
 
 	/**

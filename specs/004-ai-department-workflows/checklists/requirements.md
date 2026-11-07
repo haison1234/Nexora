@@ -59,8 +59,8 @@ the gate that applies to each slice.
 
 ### Approved amendment acceptance gates — OPEN
 
-- [ ] G4: published workflow identity, invocation lookup, and inherited-tool enforcement.
-- [ ] G5: stop and revocation propagation to waiting/retrying children.
+- [x] G4: published workflow identity, invocation lookup, and inherited-tool enforcement. Verified by owner/factory tests plus two-process SQLite/Bull recovery with production `WorkflowRunner` and `ScalingService`.
+- [x] G5: stop and revocation propagation to waiting/retrying children. The two-phase SQLite/Redis integration covers both states across fresh prepare, main recovery, and worker processes. Production reconciliation and stop services reach `JobProcessor` and `ManualExecutionService`; a running workflow node observes the abort signal. See the latest G5 entry in [tasks.md](../tasks.md).
 
 Product decisions are approved. These checks remain open until evidence covers the
 current source revision. Each gate blocks only its named implementation slice.

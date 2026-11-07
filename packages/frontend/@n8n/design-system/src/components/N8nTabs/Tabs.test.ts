@@ -61,6 +61,19 @@ describe('N8nTabs', () => {
 		vi.unstubAllGlobals();
 	});
 
+	it('uses navigation semantics when an option is a route link', () => {
+		const { container, getByRole } = render(N8nTabs, {
+			props: {
+				modelValue: 'workflows',
+				options: [{ value: 'workflows', label: 'Workflows', href: '/workflows' }],
+			},
+		});
+
+		expect(container.querySelector('[role="tablist"]')).toBeNull();
+		expect(container.querySelector('[role="group"]')).toBeInTheDocument();
+		expect(getByRole('link', { name: 'Workflows' })).toHaveAttribute('aria-current', 'page');
+	});
+
 	it('scrolls without animation when reduced motion is enabled', async () => {
 		vi.mocked(window.matchMedia).mockImplementation((query) => createMediaQuery(query, true));
 		const { getByRole } = render(N8nTabs, { props: { options: overflowOptions } });

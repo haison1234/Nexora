@@ -1186,14 +1186,14 @@ describe('AgentChannelModal', () => {
 	});
 
 	describe('n8n Chat', () => {
-		it('hides n8n Chat when its feature flag is off', async () => {
+		it('lists n8n Chat when its feature flag is off', async () => {
 			n8nChatFlag.value = false;
 			const wrapper = mountModal('list');
 			await flushPromises();
 
-			expect(wrapper.find('[data-type="n8n_chat"]').exists()).toBe(false);
+			expect(wrapper.find('[data-type="n8n_chat"]').exists()).toBe(true);
 			const [integrations] = mocks.loadChannelState.mock.calls[0];
-			expect(integrations.map((i: { type: string }) => i.type)).not.toContain('n8n_chat');
+			expect(integrations.map((i: { type: string }) => i.type)).toContain('n8n_chat');
 		});
 
 		it('refreshes n8n Chat status along with the catalog channels', async () => {

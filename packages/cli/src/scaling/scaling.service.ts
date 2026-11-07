@@ -426,7 +426,15 @@ export class ScalingService {
 	/** Add a job to the given queue (or the default queue). Priority: `1` (highest) to `MAX_SAFE_INTEGER` (lowest). */
 	async addJob(
 		jobData: JobData,
-		{ priority, queueName }: { priority: number; queueName?: string },
+		{
+			priority,
+			queueName,
+			jobId: requestedJobId,
+		}: {
+			priority: number;
+			queueName?: string;
+			jobId?: JobId;
+		},
 	) {
 		strict(priority > 0 && priority <= Number.MAX_SAFE_INTEGER);
 
@@ -436,9 +444,26 @@ export class ScalingService {
 			priority,
 			removeOnComplete: keepLastCompleted,
 			removeOnFail: keepLastFailed,
+			...(requestedJobId ? { jobId: requestedJobId } : {}),
 		};
 
 		const targetQueue = queueName ? await this.getOrCreateQueue(queueName) : this.defaultQueue;
+		if (requestedJobId) {
+			for (const queue of this.queueByName.values()) {
+				const existingJob = await queue.getJob(requestedJobId);
+				if (!existingJob) continue;
+				if (existingJob.data.executionId !== jobData.executionId) {
+					throw new UnexpectedError('A stable queue job id is already used by another execution.');
+				}
+				const state = await existingJob.getState();
+				if (['active', 'waiting', 'delayed', 'paused'].includes(state)) return existingJob;
+				if (state === 'completed' || state === 'failed') {
+					await existingJob.remove();
+					continue;
+				}
+				throw new OperationalError('The existing queue job state cannot be verified.');
+			}
+		}
 
 		const job = await targetQueue.add(JOB_TYPE_NAME, jobData, jobOptions);
 
@@ -890,7 +915,7 @@ export class ScalingService {
 			return waitMs;
 		}
 
-		const runningJobs = await this.findJobsByStatus(['active', 'waiting']);
+		const runningJobs = await this.findJobsByStatus(['active', 'waiting', 'delayed']);
 		const queuedIds = new Set(runningJobs.map((job) => job.data.executionId));
 
 		const danglingIds = storedIds.filter((id) => !queuedIds.has(id));
@@ -899,10 +924,35 @@ export class ScalingService {
 			return waitMs;
 		}
 
-		await this.executionCrashService.markAsCrashed(danglingIds, 'queue-recovery');
+		const departmentChildIds: string[] = [];
+		const crashIds: string[] = [];
+		for (const id of danglingIds) {
+			const execution = await this.executionPersistence.findSingleExecution(id, {
+				includeData: true,
+				unflattenData: true,
+				where: { status: 'new' },
+			});
+			if (
+				typeof execution?.data?.resultData?.metadata?.aiDepartmentWorkflowInvocationId === 'string'
+			) {
+				departmentChildIds.push(id);
+			} else {
+				crashIds.push(id);
+			}
+		}
 
-		this.logger.info('Completed queue recovery check, recovered dangling executions', {
-			danglingIds,
+		if (crashIds.length > 0) {
+			await this.executionCrashService.markAsCrashed(crashIds, 'queue-recovery');
+		}
+		if (departmentChildIds.length > 0) {
+			this.logger.warn('Found department child executions with unknown queue acceptance', {
+				executionIds: departmentChildIds,
+			});
+		}
+
+		this.logger.info('Completed queue recovery check, processed dangling executions', {
+			crashedExecutionIds: crashIds,
+			departmentChildrenWithUnknownAcceptance: departmentChildIds,
 		});
 
 		// if this cycle used up the whole batch size, it is possible for there to be

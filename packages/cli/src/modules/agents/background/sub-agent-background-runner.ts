@@ -33,6 +33,8 @@ export type BackgroundSubAgentRunContext = Pick<
 	| 'credentialProvider'
 	| 'runType'
 	| 'workflowToolExecutionMode'
+	| 'departmentWorkflowIds'
+	| 'departmentWorkflowCapabilities'
 	| 'user'
 	| 'instrumentation'
 	| 'parentWorkspaceHandle'
@@ -139,6 +141,12 @@ export class SubAgentBackgroundRunner {
 					credentialProvider: context.credentialProvider,
 					runType: context.runType,
 					workflowToolExecutionMode: context.workflowToolExecutionMode,
+					...(context.departmentWorkflowIds !== undefined
+						? { departmentWorkflowIds: context.departmentWorkflowIds }
+						: {}),
+					...(context.departmentWorkflowCapabilities !== undefined
+						? { departmentWorkflowCapabilities: context.departmentWorkflowCapabilities }
+						: {}),
 					user: context.user,
 					instrumentation: context.instrumentation,
 					abortSignal: abortController.signal,

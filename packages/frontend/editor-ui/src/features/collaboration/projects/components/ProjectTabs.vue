@@ -36,11 +36,15 @@ const selectedTab = ref<RouteRecordName | null | undefined>('');
 
 const selectedTabLabel = computed(() => (selectedTab.value ? String(selectedTab.value) : ''));
 
-const projectId = computed(() => {
-	return Array.isArray(route?.params?.projectId)
-		? route.params.projectId[0]
-		: route?.params?.projectId;
-});
+const projectId = computed(() =>
+	Array.isArray(route?.params?.projectId) ? route.params.projectId[0] : route?.params?.projectId,
+);
+
+const dynamicTabsProjectId = computed(
+	() =>
+		projectId.value ??
+		(props.pageType === 'overview' ? projectStore.personalProject?.id : undefined),
+);
 
 const isPublicProject = computed(() => projectStore.currentProject?.type === ProjectTypes.Public);
 
@@ -118,7 +122,10 @@ const options = computed<Array<TabOptions<string>>>(() => {
 	}
 
 	if (props.additionalTabs?.length) {
-		const processedAdditionalTabs = processDynamicTabs(props.additionalTabs, projectId.value);
+		const processedAdditionalTabs = processDynamicTabs(
+			props.additionalTabs,
+			dynamicTabsProjectId.value,
+		);
 		for (const processed of processedAdditionalTabs) {
 			const { insertAfter, ...tab } = processed;
 			const anchorIndex = insertAfter ? tabs.findIndex((t) => t.value === insertAfter) : -1;

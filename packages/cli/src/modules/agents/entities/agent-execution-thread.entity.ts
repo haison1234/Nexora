@@ -24,6 +24,9 @@ export class AgentExecutionThread extends WithTimestampsAndStringId {
 	@JsonColumn({ nullable: true, comment: 'Latest task stop boundary' })
 	taskStop: StoredAgentTaskStop | null;
 
+	@Column({ type: 'int', default: 0, comment: 'Durable AI Department owner snapshot sequence' })
+	departmentSnapshotSequence: number;
+
 	@ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
 	@JoinColumn({ name: 'ownerId', foreignKeyConstraintName: 'FK_agent_execution_threads_owner' })
 	owner: Relation<User> | null;

@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto';
+
 import type { BuiltTool, InterruptibleToolContext } from '@n8n/agents';
 import { Tool } from '@n8n/agents/tool';
+import { zodToJsonSchema } from '@n8n/ai-utilities/json-schema';
 import {
 	getWorkflowToolIncompatibilityReason,
 	WORKFLOW_WAIT_ACTION_CANCEL,
@@ -7,6 +10,7 @@ import {
 	WORKFLOW_TOOL_TRIGGER_DISPLAY_NAME,
 	WORKFLOW_WAIT_SUSPEND_TYPE,
 	type AgentJsonToolConfig,
+	type AiDepartmentWorkflowCapabilitySnapshot,
 	type SUPPORTED_WORKFLOW_TOOL_TRIGGERS,
 } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
@@ -17,6 +21,7 @@ import { isRecord } from '@n8n/utils/is-record';
 import { createDeferredPromise } from '@n8n/utils/promise/deferred-promise';
 import { sleep } from '@n8n/utils/sleep';
 import { DateTime } from 'luxon';
+import { ConflictError } from '@n8n/errors';
 import type {
 	IDataObject,
 	IExecuteResponsePromiseData,
@@ -45,6 +50,7 @@ import type { SubworkflowPolicyChecker } from '@/executions/pre-execution-checks
 import type { EphemeralNodeExecutor } from '@/node-execution/ephemeral-node-executor';
 import { WebhookResponseRelay } from '@/scaling/webhook-response-relay';
 import type { WorkflowRunner } from '@/workflow-runner';
+import { DuplicateExecutionError } from '@/errors/duplicate-execution.error';
 
 import type { InstrumentToolAdditionalData } from '../evaluation/agent-evaluation.contracts';
 import { decodeAgentSandboxHostMetadata } from '../agent-sandbox-principal';
@@ -62,6 +68,13 @@ import {
 	settlementStatusForExecution,
 } from '../background/agent-background-job.service';
 import { sanitizeToolName } from '../json-config/agent-config-composition';
+import { DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED } from '../department-workflow-invocation-gate';
+import {
+	DepartmentWorkflowInvocationInputsProxy,
+	DepartmentWorkflowInvocationOwnerProxy,
+	DepartmentWorkflowInvocationProxy,
+} from '../agent-department-execution.contracts';
+import type { DepartmentWorkflowInvocationOwnerLookup } from '../agent-department-execution.contracts';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -95,6 +108,18 @@ const WAIT_POLL_ELIGIBLE_MS = 60_000;
 const WAIT_TRACKER_SWEEP_MS = 60_000;
 
 const WAIT_POLL_INTERVAL_MS = 2_000;
+const DEPARTMENT_WORKFLOW_INPUT_HASH = 'aiDepartmentWorkflowInputHash';
+
+function stableJson(value: unknown): string {
+	if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+	if (isRecord(value)) {
+		return `{${Object.keys(value)
+			.sort()
+			.map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
+			.join(',')}}`;
+	}
+	return JSON.stringify(value) ?? 'null';
+}
 
 /** `buildSuspendCardPayload` passes this through verbatim, so it doubles as the HITL card spec. */
 const WAIT_SUSPEND_SCHEMA = z.object({
@@ -177,6 +202,10 @@ export interface WorkflowToolContext {
 	supportsHitl?: boolean;
 	/** When true, an execution parked at a Wait node becomes a background job instead of polling or suspending. */
 	backgroundTasksEnabled?: boolean;
+	/** Workflow ids pinned to one department attempt. Present only for department runs. */
+	departmentWorkflowIds?: string[];
+	/** Approved workflow revisions pinned to one department attempt. */
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 	/** Eval-only additionalData decoration for the sub-execution — absent on every production path. */
 	instrumentToolAdditionalData?: InstrumentToolAdditionalData;
 }
@@ -461,26 +490,169 @@ export async function executeWorkflow(
 	const { workflowRunner, subworkflowPolicyChecker, activeExecutions } = context;
 
 	context.abortSignal?.throwIfAborted();
+	const isDepartmentInvocation =
+		context.departmentWorkflowIds !== undefined && context.agentRun !== undefined;
+	if (isDepartmentInvocation && !DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED) {
+		throw new WorkflowToolUnavailableError(
+			'incompatible',
+			'Department workflow calls are unavailable until execution ownership is verified.',
+		);
+	}
+	if (isDepartmentInvocation && workflow.settings?.engineType === 'v2') {
+		throw new WorkflowToolUnavailableError(
+			'incompatible',
+			'Engine v2 workflows cannot be used as AI Department workflow capabilities.',
+		);
+	}
 	await subworkflowPolicyChecker.checkForProject(workflow, context.projectId);
 	context.abortSignal?.throwIfAborted();
 
-	// Build pin data for the trigger
+	const workflowData =
+		workflow.pinData === undefined ? workflow : { ...workflow, pinData: undefined };
+	let departmentInvocation:
+		| {
+				invocationId: string;
+				key: string;
+				inputsRef: string;
+				inputHash: string;
+				workflowVersion: string;
+		  }
+		| undefined;
+	let recoveredOwnerExecutionRef: string | undefined;
+	let recoveredNonterminalStatus: string | undefined;
+	let verifiedOwnerResult:
+		| Extract<DepartmentWorkflowInvocationOwnerLookup, { kind: 'accepted' }>
+		| undefined;
+	if (context.departmentWorkflowIds !== undefined && context.agentRun) {
+		const capability = context.departmentWorkflowCapabilities?.find(
+			(item) => item.workflowId === workflow.id,
+		);
+		if (!capability || !workflow.versionId) {
+			throw new WorkflowToolUnavailableError(
+				'incompatible',
+				'The selected workflow capability or published version is unavailable.',
+			);
+		}
+		const inputHash = createHash('sha256').update(stableJson(inputData)).digest('hex');
+		const reservation = await Container.get(DepartmentWorkflowInvocationProxy).reserve(
+			{
+				projectId: context.agentRun.projectId,
+				executorId: context.agentRun.agentId,
+				attemptId: context.agentRun.threadId,
+			},
+			{
+				capabilityId: capability.id,
+				capabilityVersion: capability.version,
+				workflowId: workflow.id,
+				requestId: context.agentRun.toolCallId,
+				inputHash,
+				expectedWorkflowVersion: capability.publishedVersionRef,
+			},
+		);
+		if (reservation.duplicate) {
+			const owner = Container.get(DepartmentWorkflowInvocationOwnerProxy);
+			const ownerInput = {
+				projectId: context.agentRun.projectId,
+				invocationId: reservation.invocationId,
+				ownerInvocationKey: reservation.ownerInvocationKey,
+				inputHash,
+				expectedWorkflowVersion: capability.publishedVersionRef,
+			};
+			let ownerResult = await owner.lookup(ownerInput);
+			if (ownerResult.kind === 'unknown') ownerResult = await owner.recover(ownerInput);
+			if (ownerResult.kind === 'unknown') {
+				throw new ConflictError(
+					'Workflow invocation already exists and its child execution is not yet verified.',
+				);
+			}
+			if (ownerResult.kind === 'accepted') {
+				verifiedOwnerResult = ownerResult;
+				recoveredOwnerExecutionRef = ownerResult.ownerExecutionRef;
+				if (
+					ownerResult.childState === 'pending' ||
+					ownerResult.childState === 'running' ||
+					ownerResult.childState === 'waiting' ||
+					ownerResult.childState === 'retrying'
+				) {
+					recoveredNonterminalStatus = ownerResult.childState;
+				}
+			}
+		}
+		const invocationInputs = Container.get(DepartmentWorkflowInvocationInputsProxy);
+		await invocationInputs.stage({
+			projectId: context.agentRun.projectId,
+			invocationId: reservation.invocationId,
+			inputsRef: reservation.inputsRef,
+			inputHash,
+			inputs: inputData,
+		});
+		const resolvedInputs = await invocationInputs.resolve({
+			projectId: context.agentRun.projectId,
+			invocationId: reservation.invocationId,
+			inputsRef: reservation.inputsRef,
+			inputHash,
+		});
+		if (!isRecord(resolvedInputs)) {
+			throw new ConflictError('Workflow invocation inputs could not be verified.');
+		}
+		inputData = resolvedInputs;
+		departmentInvocation = {
+			invocationId: reservation.invocationId,
+			key: reservation.ownerInvocationKey,
+			inputsRef: reservation.inputsRef,
+			inputHash,
+			workflowVersion: workflow.versionId,
+		};
+	}
+	// Build pin data only after a department invocation resolves its durable input.
 	const triggerPinData: IPinData = {
 		[triggerNode.name]: [{ json: inputData as IDataObject }],
 	};
-	const workflowData =
-		workflow.pinData === undefined ? workflow : { ...workflow, pinData: undefined };
-
+	const parentAgentRun =
+		context.agentRun && context.userId && !context.agentRun.userId
+			? { ...context.agentRun, userId: context.userId }
+			: context.agentRun;
+	if (departmentInvocation && context.agentRun) {
+		await Container.get(DepartmentWorkflowInvocationInputsProxy).stageDispatch({
+			dispatchData: {
+				projectId: context.agentRun.projectId,
+				invocationId: departmentInvocation.invocationId,
+				ownerInvocationKey: departmentInvocation.key,
+				inputsRef: departmentInvocation.inputsRef,
+				inputHash: departmentInvocation.inputHash,
+				expectedWorkflowVersion: departmentInvocation.workflowVersion,
+				workflowId: workflow.id,
+				executionMode: context.executionMode,
+				...(context.userId ? { userId: context.userId } : {}),
+				agentRun: parentAgentRun ?? context.agentRun,
+			},
+		});
+	}
 	// Build execution data following Instance AI adapter's pattern
 	const runData: IWorkflowExecutionDataProcess = {
 		executionMode: context.executionMode,
+		...(context.userId ? { userId: context.userId } : {}),
+		...(departmentInvocation ? { deduplicationKey: departmentInvocation.key } : {}),
 		workflowData,
 		startNodes: [{ name: triggerNode.name, sourceData: null }],
 		pinData: triggerPinData,
 		executionData: createRunExecutionData({
-			...(context.agentRun ? { parentAgentRun: context.agentRun } : {}),
+			...(parentAgentRun ? { parentAgentRun } : {}),
 			startData: {},
-			resultData: { pinData: triggerPinData, runData: {} },
+			resultData: {
+				pinData: triggerPinData,
+				runData: {},
+				...(departmentInvocation
+					? {
+							metadata: {
+								aiDepartmentProjectId: context.projectId,
+								[DEPARTMENT_WORKFLOW_INPUT_HASH]: departmentInvocation.inputHash,
+								aiDepartmentWorkflowInvocationId: departmentInvocation.invocationId,
+								aiDepartmentWorkflowVersion: departmentInvocation.workflowVersion,
+							},
+						}
+					: {}),
+			},
 			executionData: {
 				contextData: {},
 				metadata: {},
@@ -515,70 +687,215 @@ export async function executeWorkflow(
 		})
 		.catch(() => {});
 
-	const executionId = await workflowRunner.run(
-		runData,
-		undefined,
-		undefined,
-		undefined,
-		responsePromise,
-	);
-
-	return await withWorkflowCancellation(executionId, workflow.id, context.abortSignal, async () => {
-		// Wait for completion with timeout protection
-		const timeoutMs = DEFAULT_TIMEOUT_MS;
-
-		let completedRun: IRun | undefined;
-		if (activeExecutions.has(executionId)) {
-			let timeoutId: NodeJS.Timeout | undefined;
-			const timeoutPromise = new Promise<never>((_, reject) => {
-				timeoutId = setTimeout(() => {
-					reject(new Error(`Execution timed out after ${timeoutMs}ms`));
-				}, timeoutMs);
-			});
-
-			try {
-				completedRun = await Promise.race([
-					activeExecutions.getPostExecutePromise(executionId),
-					timeoutPromise,
-				]);
-				clearTimeout(timeoutId);
-			} catch (error) {
-				clearTimeout(timeoutId);
-				if (error instanceof Error && error.message.includes('timed out')) {
-					try {
-						activeExecutions.stopExecution(
-							executionId,
-							new TimeoutExecutionCancelledError(executionId),
-						);
-					} catch {
-						// Execution may have completed between timeout and cancel
-					}
-					return {
-						executionId,
-						status: 'error',
-						error: `Execution timed out after ${timeoutMs}ms and was cancelled`,
-					};
-				}
+	let executionId: string;
+	if (recoveredOwnerExecutionRef) {
+		executionId = recoveredOwnerExecutionRef;
+	} else {
+		try {
+			executionId = await workflowRunner.run(
+				runData,
+				undefined,
+				undefined,
+				undefined,
+				responsePromise,
+			);
+		} catch (error) {
+			if (!departmentInvocation) throw error;
+			if (!(error instanceof DuplicateExecutionError)) {
+				await Container.get(DepartmentWorkflowInvocationProxy).unknown({
+					projectId: context.projectId,
+					invocationId: departmentInvocation.invocationId,
+				});
 				throw error;
 			}
-		}
-
-		const result =
-			completedRun && context.executionMode === 'integrated'
-				? formatResult(executionId, completedRun.status, completedRun.data, allOutputs)
-				: await extractResult(executionId, allOutputs);
-		if (isWorkflowToolResponse(webhookResponse)) {
-			const response = await Container.get(WebhookResponseRelay).restoreOffloadedBody(
-				webhookResponse,
-				{ reclaim: true, context: { workflowId: workflow.id, executionId } },
+			const persistence = Container.get(ExecutionPersistence);
+			const existingExecutionId = await persistence.findExecutionIdByDeduplicationKey(
+				departmentInvocation.key,
 			);
-			result.data = {
-				...(result.data ?? {}),
-				response: truncateWebhookResponse(response),
-			};
+			if (!existingExecutionId) {
+				await Container.get(DepartmentWorkflowInvocationProxy).unknown({
+					projectId: context.projectId,
+					invocationId: departmentInvocation.invocationId,
+				});
+				throw error;
+			}
+			const existing = await persistence.findSingleExecution(existingExecutionId, {
+				includeData: true,
+				unflattenData: true,
+			});
+			if (!existing)
+				throw new OperationalError('The prior workflow invocation result is unavailable.');
+			const existingMetadata = existing?.data?.resultData?.metadata;
+			const existingInputHash = existingMetadata?.[DEPARTMENT_WORKFLOW_INPUT_HASH];
+			if (
+				existingInputHash !== departmentInvocation.inputHash ||
+				existingMetadata?.aiDepartmentProjectId !== context.projectId ||
+				existingMetadata?.aiDepartmentWorkflowInvocationId !== departmentInvocation.invocationId ||
+				existingMetadata?.aiDepartmentWorkflowVersion !== departmentInvocation.workflowVersion
+			) {
+				throw new ConflictError(
+					'This workflow invocation key was already used with different input.',
+				);
+			}
+			if (existing.status === 'new') {
+				const recovered = await Container.get(DepartmentWorkflowInvocationOwnerProxy).recover({
+					projectId: context.projectId,
+					invocationId: departmentInvocation.invocationId,
+					ownerInvocationKey: departmentInvocation.key,
+					inputHash: departmentInvocation.inputHash,
+					expectedWorkflowVersion: departmentInvocation.workflowVersion,
+				});
+				if (recovered.kind !== 'accepted') {
+					throw new OperationalError('The pending workflow execution could not be recovered.');
+				}
+				if (recovered.ownerExecutionRef !== existingExecutionId) {
+					throw new OperationalError('The recovered workflow execution does not match its key.');
+				}
+				verifiedOwnerResult = recovered;
+				recoveredOwnerExecutionRef = recovered.ownerExecutionRef;
+				recoveredNonterminalStatus = recovered.childState;
+			} else if (
+				!isTerminalExecutionStatus(existing.status) &&
+				!activeExecutions.has(existingExecutionId)
+			) {
+				recoveredNonterminalStatus = existing.status;
+			}
+			executionId = existingExecutionId;
 		}
-		return result;
-	});
+	}
+	if (departmentInvocation) {
+		try {
+			if (!verifiedOwnerResult) {
+				const owner = Container.get(DepartmentWorkflowInvocationOwnerProxy);
+				const ownerInput = {
+					projectId: context.projectId,
+					invocationId: departmentInvocation.invocationId,
+					ownerInvocationKey: departmentInvocation.key,
+					inputHash: departmentInvocation.inputHash,
+					expectedWorkflowVersion: departmentInvocation.workflowVersion,
+				};
+				let ownerResult = await owner.lookup(ownerInput);
+				if (ownerResult.kind !== 'accepted') ownerResult = await owner.recover(ownerInput);
+				if (ownerResult.kind !== 'accepted') {
+					throw new OperationalError('The workflow owner has not confirmed queue acceptance.');
+				}
+				verifiedOwnerResult = ownerResult;
+			}
+			if (
+				verifiedOwnerResult.ownerExecutionRef !== executionId ||
+				verifiedOwnerResult.actualWorkflowVersion !== departmentInvocation.workflowVersion
+			) {
+				throw new OperationalError(
+					'The workflow owner confirmation does not match this invocation.',
+				);
+			}
+			await Container.get(DepartmentWorkflowInvocationProxy).accepted({
+				projectId: context.projectId,
+				invocationId: departmentInvocation.invocationId,
+				ownerExecutionRef: executionId,
+				actualWorkflowVersion: departmentInvocation.workflowVersion,
+				childState: verifiedOwnerResult.childState,
+			});
+		} catch (error) {
+			await Container.get(DepartmentWorkflowInvocationProxy).unknown({
+				projectId: context.projectId,
+				invocationId: departmentInvocation.invocationId,
+			});
+			throw error;
+		}
+	}
+	if (recoveredNonterminalStatus) {
+		return {
+			executionId,
+			status: recoveredNonterminalStatus,
+			note: 'This workflow invocation is already accepted and has not reached a terminal state.',
+		};
+	}
+
+	const result = await withWorkflowCancellation(
+		executionId,
+		workflow.id,
+		context.abortSignal,
+		async () => {
+			// Wait for completion with timeout protection
+			const timeoutMs = DEFAULT_TIMEOUT_MS;
+
+			let completedRun: IRun | undefined;
+			if (activeExecutions.has(executionId)) {
+				let timeoutId: NodeJS.Timeout | undefined;
+				const timeoutPromise = new Promise<never>((_, reject) => {
+					timeoutId = setTimeout(() => {
+						reject(new Error(`Execution timed out after ${timeoutMs}ms`));
+					}, timeoutMs);
+				});
+
+				try {
+					completedRun = await Promise.race([
+						activeExecutions.getPostExecutePromise(executionId),
+						timeoutPromise,
+					]);
+					clearTimeout(timeoutId);
+				} catch (error) {
+					clearTimeout(timeoutId);
+					if (error instanceof Error && error.message.includes('timed out')) {
+						try {
+							activeExecutions.stopExecution(
+								executionId,
+								new TimeoutExecutionCancelledError(executionId),
+							);
+						} catch {
+							// Execution may have completed between timeout and cancel
+						}
+						return {
+							executionId,
+							status: 'error',
+							error: `Execution timed out after ${timeoutMs}ms and was cancelled`,
+						};
+					}
+					throw error;
+				}
+			}
+
+			const result =
+				completedRun && context.executionMode === 'integrated'
+					? formatResult(executionId, completedRun.status, completedRun.data, allOutputs)
+					: await extractResult(executionId, allOutputs);
+			if (isWorkflowToolResponse(webhookResponse)) {
+				const response = await Container.get(WebhookResponseRelay).restoreOffloadedBody(
+					webhookResponse,
+					{ reclaim: true, context: { workflowId: workflow.id, executionId } },
+				);
+				result.data = {
+					...(result.data ?? {}),
+					response: truncateWebhookResponse(response),
+				};
+			}
+			return result;
+		},
+		departmentInvocation
+			? async () =>
+					await Container.get(DepartmentWorkflowInvocationProxy).cancellationRequested({
+						projectId: context.projectId,
+						invocationId: departmentInvocation.invocationId,
+						ownerExecutionRef: executionId,
+					})
+			: undefined,
+	);
+	if (departmentInvocation) {
+		if (!context.agentRun) {
+			throw new ConflictError('The Agent execution is unavailable for workflow result delivery.');
+		}
+		await Container.get(DepartmentWorkflowInvocationProxy).authorizeResultDelivery({
+			projectId: context.agentRun.projectId,
+			executorId: context.agentRun.agentId,
+			attemptId: context.agentRun.threadId,
+			invocationId: departmentInvocation.invocationId,
+			ownerExecutionRef: executionId,
+		});
+	}
+	await subworkflowPolicyChecker.checkForProject(workflow, context.projectId);
+	context.abortSignal?.throwIfAborted();
+	return result;
 }
 
 /** The foreground tool owns cancellation until it hands the workflow to a background job. */
@@ -587,11 +904,18 @@ async function withWorkflowCancellation<T>(
 	workflowId: string | undefined,
 	signal: AbortSignal | undefined,
 	execute: () => Promise<T>,
+	requestCancellation?: () => Promise<void>,
 ): Promise<T> {
 	if (!signal) return await execute();
 	const aborted = createDeferredPromise<never>();
 	const onAbort = () => {
 		void (async () => {
+			let cancellationRequestError: unknown;
+			try {
+				await requestCancellation?.();
+			} catch (error) {
+				cancellationRequestError = error;
+			}
 			try {
 				const { ExecutionService } = await import('@/executions/execution.service.js');
 				const id =
@@ -599,7 +923,7 @@ async function withWorkflowCancellation<T>(
 					(await Container.get(ExecutionPersistence).findSingleExecution(executionId))?.workflowId;
 				if (!id) throw new OperationalError('The workflow execution is no longer available');
 				await Container.get(ExecutionService).stop(executionId, [id]);
-				aborted.reject(signal.reason);
+				aborted.reject(cancellationRequestError ?? signal.reason);
 			} catch (error) {
 				aborted.reject(error);
 			}
@@ -1142,6 +1466,7 @@ function assembleWorkflowTool(
 				result = await extractResult(pending.data.executionId, allOutputs);
 			} else {
 				current = await loadCurrentWorkflow(context, reference);
+				assertPinnedDepartmentCapability(current, context);
 				const currentFullSchema = inferInputSchema(current.triggerNode, current.triggerType);
 				const parsedInput = await resolveWorkflowToolInput(
 					input,
@@ -1239,6 +1564,45 @@ async function loadCurrentWorkflow(
 	const { node: triggerNode, triggerType } = detectTriggerNode(workflow);
 
 	return { workflow, triggerNode, triggerType };
+}
+
+function assertPinnedDepartmentCapability(
+	current: Awaited<ReturnType<typeof loadCurrentWorkflow>>,
+	context: WorkflowToolContext,
+) {
+	if (context.departmentWorkflowIds === undefined) return;
+	if (!DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED) {
+		throw new WorkflowToolUnavailableError(
+			'incompatible',
+			'Department workflow calls are unavailable until execution ownership is verified.',
+		);
+	}
+	const capability = context.departmentWorkflowCapabilities?.find(
+		(candidate) => candidate.workflowId === current.workflow.id,
+	);
+	if (!capability || !context.departmentWorkflowIds.includes(current.workflow.id)) {
+		throw new WorkflowToolUnavailableError(
+			'incompatible',
+			'This workflow is not selected for the active department attempt.',
+		);
+	}
+	const publicationRef = current.workflow.versionId;
+	const triggerCompatibilityRef = `${current.triggerNode.type}@${current.triggerNode.typeVersion}`;
+	const inputSchemaFingerprint = createHash('sha256')
+		.update(
+			JSON.stringify(zodToJsonSchema(inferInputSchema(current.triggerNode, current.triggerType))),
+		)
+		.digest('hex');
+	if (
+		publicationRef !== capability.publishedVersionRef ||
+		triggerCompatibilityRef !== capability.triggerCompatibilityRef ||
+		inputSchemaFingerprint !== capability.inputSchemaFingerprint
+	) {
+		throw new WorkflowToolUnavailableError(
+			'incompatible',
+			'The selected workflow publication changed after this attempt was created.',
+		);
+	}
 }
 
 // ---------------------------------------------------------------------------

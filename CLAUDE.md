@@ -189,7 +189,7 @@ Source and asset reuse require file-level provenance and license checks before c
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **n8n** (349704 symbols, 716792 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Nexora** (354232 symbols, 727278 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -212,10 +212,10 @@ This project is indexed by GitNexus as **n8n** (349704 symbols, 716792 relations
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/n8n/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/n8n/clusters` | All functional areas |
-| `gitnexus://repo/n8n/processes` | All execution flows |
-| `gitnexus://repo/n8n/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/Nexora/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/Nexora/clusters` | All functional areas |
+| `gitnexus://repo/Nexora/processes` | All execution flows |
+| `gitnexus://repo/Nexora/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

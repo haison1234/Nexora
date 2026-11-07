@@ -82,9 +82,47 @@ the compatibility drain calls startWork per item. T022 adds durable `WorkEligibi
 `WorkWakeLane` persistence. T023 now writes eligibility for readiness, ready
 reassignment, review return, and explicit start, while keeping the per-work wake
 compatibility path. T024 adds a lane-bound assigned-work inbox service with keyset
-pagination. The authenticated Agent tool is still T029. Lane coalescing and drain
-recovery are not wired yet. WorkCoordinationService provides current-attempt
-inspect/actions; destination handoff remains open. Release currently moves to blocked.
+pagination. T025 now stores the active attempt on the lane and claims it in the same
+transaction as attempt reservation. It captures the acknowledged generation and keeps
+newer generations pending until the active attempt reaches a confirmed terminal state.
+The per-work compatibility drain still starts one work item per owner run. T026 now
+shares the department admission fence between reservation and binding changes. It
+rechecks assignment, binding revision, blockers, work version/state, and lane ownership
+before reservation. A stale wake is cancelled with a rejected receipt and is not
+dispatched. WorkCoordinationService rechecks blockers before claim, resume, and result
+submission. Controlled tests cover these checks; C2 acceptance remains open. Process
+restart and real Agents owner acceptance remain unverified. T027 adds durable handoff
+intents, source-action fencing, confirmed-stop completion, and destination eligibility.
+Unknown stop keeps the source slot reserved. A cancelled handoff cannot be revived by a
+late stop result. T028 adds a separate durable release intent, reason history, immediate
+action fencing, and blocked recovery. Release keeps the assignee and lane reserved until
+a correlated terminal snapshot is stored. C2-A4/A5 controlled and handoff/release runtime acceptance remain open. G2 controlled stop tests pass, but live stop/restart acceptance remains open; live recovery was sweeper-driven. See evidence.md.
+T029 connects inbox, claim/report/release, and handoff request actions to the authenticated
+Agent owner context. A coordinator authorizes an Agent handoff before the source stop is
+requested. T030 controlled-owner coverage is complete. C2 acceptance and real Agent
+runtime proof remain open until restart, revocation, and durable stop behavior are proven.
+
+### Controlled acceptance recheck — 2026-11-06
+
+The checks below record controlled SQLite coverage. They do not close the full C2-A
+acceptance items. Keep the boxes below open until the required owner/runtime evidence is
+available.
+
+| Acceptance | Controlled evidence | Remaining proof |
+|---|---|---|
+| C2-A1 | PARTIAL: controlled coverage checks lane admission, retained eligibility and coalescing. The opt-in Ollama restart run recovered one accepted dispatch, drained four same-lane Work items with one live owner run at a time, and retained a fourth item created during the first run. | Live owner proof that competing users, members and binding revisions never share authority. |
+| C2-A2 | PARTIAL: the opt-in Ollama run recovered the accepted queue message after restart and drained its generation through four live owner runs. | Repeat on PostgreSQL and verify competing authority lanes after restart. |
+| C2-A3 | PASS: integration coverage checks blocker admission, graph validation, and cancelled blockers. D-1 regression now confirms a cancelled blocker still blocks claim. | Full owner/runtime result-path acceptance. |
+| C2-A4 | PASS: controlled-owner cases cover unknown stop, confirmed stop, destination loss, cancellation race, and stale source report. | Native owner stop and restart/revocation proof. |
+| C2-A5 | PASS: controlled-owner cases cover release reason, source-action fencing, retained assignment, and retry gating. | Native owner termination and restart proof. |
+| C2-A6 | PASS: integration cases cover receipt replay, payload conflict, stale version, invalid authority, and eligibility fencing. | Native Agent command replay and revocation proof. |
+
+`work-attempts.integration.test.ts` passed 36/36 and
+`workflow-invocation-revocation.integration.test.ts` passed 2/2 on 2026-11-06. These
+tests use controlled owner contracts. The D-1 cancelled-blocker regression is included.
+The separate-process test proves queue lookup/admission and lane wake recovery across restart.
+It does not prove a real model run, automatic queue-consumer scan after restart, or live
+revocation.
 
 G1 source review confirms the ownership boundary: the department stores per-work
 eligibility and lane generations, coalesces notifications, and admits at most one run

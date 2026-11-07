@@ -37,6 +37,14 @@ export class AgentMessageRepository extends BaseRepository<AgentMessageEntity> {
 		super(AgentMessageEntity, dataSource.manager, transactionRunner);
 	}
 
+	async findOriginById(id: string): Promise<AgentMessageOrigin | null> {
+		const message = await this.manager.findOne(AgentMessageEntity, {
+			select: ['id', 'origin'],
+			where: { id },
+		});
+		return message?.origin ?? null;
+	}
+
 	async createInput(
 		params: {
 			id?: string;

@@ -6,7 +6,7 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE "ai_department_work_claim" ("id" varchar(36) PRIMARY KEY NOT NULL, "projectId" varchar(36) NOT NULL, "departmentId" varchar(36) NOT NULL, "workId" varchar(36) NOT NULL, "attemptId" varchar(36) NOT NULL, "memberId" varchar(36) NOT NULL, "executionId" varchar(36) NOT NULL, "leaseUntil" datetime(3) NOT NULL, "claimedAt" datetime(3) NOT NULL, "createdAt" datetime(3) NOT NULL, "releasedAt" datetime(3), CONSTRAINT "FK_12d565e193f00309068099aa06f" FOREIGN KEY ("workId") REFERENCES "ai_department_work_item" ("id") ON DELETE CASCADE, CONSTRAINT "FK_e7c655c16404da78a88f3b2f3c6" FOREIGN KEY ("attemptId") REFERENCES "ai_department_work_attempt" ("id") ON DELETE CASCADE)
+CREATE TABLE "ai_department_work_claim" ("id" varchar(36) PRIMARY KEY NOT NULL, "projectId" varchar(36) NOT NULL, "departmentId" varchar(36) NOT NULL, "workId" varchar(36) NOT NULL, "attemptId" varchar(36) NOT NULL, "memberId" varchar(36) NOT NULL, "executionId" varchar(36) NOT NULL, "leaseUntil" datetime(3) NOT NULL, "claimedAt" datetime(3) NOT NULL, "createdAt" datetime(3) NOT NULL, "releasedAt" datetime(3), "claimGeneration" integer NOT NULL, CONSTRAINT "FK_12d565e193f00309068099aa06f" FOREIGN KEY ("workId") REFERENCES "ai_department_work_item" ("id") ON DELETE CASCADE ON UPDATE NO ACTION, CONSTRAINT "FK_e7c655c16404da78a88f3b2f3c6" FOREIGN KEY ("attemptId") REFERENCES "ai_department_work_attempt" ("id") ON DELETE CASCADE ON UPDATE NO ACTION)
 ```
 
 </details>
@@ -16,6 +16,7 @@ CREATE TABLE "ai_department_work_claim" ("id" varchar(36) PRIMARY KEY NOT NULL, 
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
 | attemptId | varchar(36) |  | false |  | [ai_department_work_attempt](ai_department_work_attempt.md) |  |
+| claimGeneration | INTEGER |  | false |  |  |  |
 | claimedAt | datetime(3) |  | false |  |  |  |
 | createdAt | datetime(3) |  | false |  |  |  |
 | departmentId | varchar(36) |  | false |  |  |  |
@@ -53,6 +54,7 @@ erDiagram
 
 "ai_department_work_claim" {
   varchar_36_ attemptId FK
+  INTEGER claimGeneration
   datetime_3_ claimedAt
   datetime_3_ createdAt
   varchar_36_ departmentId
@@ -85,15 +87,26 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  datetime_3_ reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  TEXT reviewStagesJson
   TEXT safeSummary
   datetime_3_ startedAt
+  varchar_36_ submittedResultId
   datetime_3_ updatedAt
   varchar_36_ workId FK
+  TEXT workflowCapabilitiesJson
+  TEXT workflowIdsJson
 }
 "ai_department_work_item" {
+  varchar_36_ assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   datetime_3_ createdAt
   varchar_36_ currentAttemptId FK
+  INTEGER currentReviewStageIndex
   varchar_36_ departmentId FK
   datetime_3_ dueAt
   varchar_36_ goalId FK
@@ -102,6 +115,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  TEXT reviewStagesJson
   varchar_24_ state
   datetime_3_ updatedAt
   INTEGER version

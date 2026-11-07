@@ -6,7 +6,7 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE "agent_execution_threads" ("id" varchar(128) PRIMARY KEY NOT NULL, "agentId" varchar(36) NOT NULL, "agentName" varchar(255) NOT NULL, "projectId" varchar(255) NOT NULL, "sessionNumber" integer NOT NULL DEFAULT (0), "totalPromptTokens" integer NOT NULL DEFAULT (0), "totalCompletionTokens" integer NOT NULL DEFAULT (0), "totalCost" real NOT NULL DEFAULT (0), "totalDuration" integer NOT NULL DEFAULT (0), "title" varchar(255), "emoji" varchar(8), "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), "updatedAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), "taskId" varchar(32), "taskVersionId" varchar(36), "parentThreadId" varchar(128), "parentAgentId" varchar(36), "ownerId" varchar, "accessScope" varchar(16) NOT NULL DEFAULT ('user'), "taskStop" TEXT, CONSTRAINT "CHK_agent_execution_threads_accessScope" CHECK ("accessScope" IN ('user', 'project')), CONSTRAINT "FK_f00b52d74fe11838e1fe086deea" FOREIGN KEY ("taskVersionId") REFERENCES "agent_history" ("versionId") ON DELETE SET NULL ON UPDATE NO ACTION, CONSTRAINT "FK_0468a9dc35597314e641d4722aa" FOREIGN KEY ("agentId") REFERENCES "agents" ("id") ON DELETE CASCADE ON UPDATE NO ACTION, CONSTRAINT "FK_0e2f8bf92a7a9c88b89670f701c" FOREIGN KEY ("projectId") REFERENCES "project" ("id") ON DELETE CASCADE ON UPDATE NO ACTION, CONSTRAINT "FK_agent_execution_threads_owner" FOREIGN KEY ("ownerId") REFERENCES "user" ("id") ON DELETE SET NULL)
+CREATE TABLE "agent_execution_threads" ("id" varchar(128) PRIMARY KEY NOT NULL, "agentId" varchar(36) NOT NULL, "agentName" varchar(255) NOT NULL, "projectId" varchar(255) NOT NULL, "sessionNumber" integer NOT NULL DEFAULT (0), "totalPromptTokens" integer NOT NULL DEFAULT (0), "totalCompletionTokens" integer NOT NULL DEFAULT (0), "totalCost" real NOT NULL DEFAULT (0), "totalDuration" integer NOT NULL DEFAULT (0), "title" varchar(255), "emoji" varchar(8), "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), "updatedAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), "taskId" varchar(32), "taskVersionId" varchar(36), "parentThreadId" varchar(128), "parentAgentId" varchar(36), "ownerId" varchar, "accessScope" varchar(16) NOT NULL DEFAULT ('user'), "taskStop" text, "departmentSnapshotSequence" integer DEFAULT (0), CONSTRAINT "CHK_agent_execution_threads_accessScope" CHECK (("accessScope" IN ('user', 'project'))), CONSTRAINT "FK_agent_execution_threads_owner" FOREIGN KEY ("ownerId") REFERENCES "user" ("id") ON DELETE SET NULL ON UPDATE NO ACTION, CONSTRAINT "FK_0e2f8bf92a7a9c88b89670f701c" FOREIGN KEY ("projectId") REFERENCES "project" ("id") ON DELETE CASCADE ON UPDATE NO ACTION, CONSTRAINT "FK_0468a9dc35597314e641d4722aa" FOREIGN KEY ("agentId") REFERENCES "agents" ("id") ON DELETE CASCADE ON UPDATE NO ACTION, CONSTRAINT "FK_f00b52d74fe11838e1fe086deea" FOREIGN KEY ("taskVersionId") REFERENCES "agent_history" ("versionId") ON DELETE SET NULL ON UPDATE NO ACTION)
 ```
 
 </details>
@@ -19,8 +19,9 @@ CREATE TABLE "agent_execution_threads" ("id" varchar(128) PRIMARY KEY NOT NULL, 
 | agentId | varchar(36) |  | false |  | [agents](agents.md) |  |
 | agentName | varchar(255) |  | false |  |  |  |
 | createdAt | datetime(3) | STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW') | false |  |  |  |
+| departmentSnapshotSequence | INTEGER | 0 | true |  |  |  |
 | emoji | varchar(8) |  | true |  |  |  |
-| id | varchar(128) |  | false | [agent_execution](agent_execution.md) [agent_message_queue](agent_message_queue.md) [agent_plan](agent_plan.md) [agent_thread_grants](agent_thread_grants.md) |  |  |
+| id | varchar(128) |  | false | [agent_department_stop_receipt](agent_department_stop_receipt.md) [agent_execution](agent_execution.md) [agent_message_queue](agent_message_queue.md) [agent_plan](agent_plan.md) [agent_thread_grants](agent_thread_grants.md) |  |  |
 | ownerId | varchar |  | true |  | [user](user.md) |  |
 | parentAgentId | varchar(36) |  | true |  |  |  |
 | parentThreadId | varchar(128) |  | true |  |  |  |
@@ -40,11 +41,11 @@ CREATE TABLE "agent_execution_threads" ("id" varchar(128) PRIMARY KEY NOT NULL, 
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
-| - | CHECK | CHECK ("accessScope" IN ('user', 'project')) |
-| - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (ownerId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
-| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
-| - (Foreign key ID: 2) | FOREIGN KEY | FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
-| - (Foreign key ID: 3) | FOREIGN KEY | FOREIGN KEY (taskVersionId) REFERENCES agent_history (versionId) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
+| - | CHECK | CHECK (("accessScope" IN ('user', 'project'))) |
+| - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (taskVersionId) REFERENCES agent_history (versionId) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
+| - (Foreign key ID: 1) | FOREIGN KEY | FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
+| - (Foreign key ID: 2) | FOREIGN KEY | FOREIGN KEY (projectId) REFERENCES project (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
+| - (Foreign key ID: 3) | FOREIGN KEY | FOREIGN KEY (ownerId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE |
 | id | PRIMARY KEY | PRIMARY KEY (id) |
 | sqlite_autoindex_agent_execution_threads_1 | PRIMARY KEY | PRIMARY KEY (id) |
 
@@ -64,6 +65,7 @@ CREATE TABLE "agent_execution_threads" ("id" varchar(128) PRIMARY KEY NOT NULL, 
 erDiagram
 
 "agent_execution_threads" }o--|| "agents" : "FOREIGN KEY (agentId) REFERENCES agents (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
+"agent_department_stop_receipt" }o--|| "agent_execution_threads" : "FOREIGN KEY (threadId) REFERENCES agent_execution_threads (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_execution" }o--|| "agent_execution_threads" : "FOREIGN KEY (threadId) REFERENCES agent_execution_threads (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_message_queue" }o--|| "agent_execution_threads" : "FOREIGN KEY (threadId) REFERENCES agent_execution_threads (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "agent_plan" }o--|| "agent_execution_threads" : "FOREIGN KEY (threadId) REFERENCES agent_execution_threads (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
@@ -77,6 +79,7 @@ erDiagram
   varchar_36_ agentId FK
   varchar_255_ agentName
   datetime_3_ createdAt
+  INTEGER departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id PK
   varchar ownerId FK
@@ -111,6 +114,20 @@ erDiagram
   TEXT tools
   datetime_3_ updatedAt
   varchar_36_ versionId
+}
+"agent_department_stop_receipt" {
+  varchar actorId
+  varchar_36_ agentId
+  varchar_36_ commandId PK
+  datetime_3_ confirmedAt
+  datetime_3_ createdAt
+  varchar_36_ ownerExecutionRef
+  varchar_64_ payloadHash
+  varchar_36_ projectId
+  varchar_24_ reason
+  varchar_16_ status
+  varchar_128_ threadId FK
+  datetime_3_ updatedAt
 }
 "agent_execution" {
   BOOLEAN acceptsSteering

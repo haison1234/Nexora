@@ -13,6 +13,7 @@ import { AgentMessageQueueService } from './agent-message-queue.service';
 import { AgentQueuedTestStreamService } from './agent-queued-test-stream.service';
 import { AgentChatAttachmentService } from './agent-chat-attachment.service';
 import { SystemAgentRegistry } from './system-agents/system-agent-registry';
+import { AgentExecutionRepository } from './repositories/agent-execution.repository';
 
 @Service()
 export class AgentSessionStopService {
@@ -25,6 +26,7 @@ export class AgentSessionStopService {
 		private readonly chatExecutionService: AgentChatExecutionService,
 		private readonly queuedStreams: AgentQueuedTestStreamService,
 		private readonly attachments: AgentChatAttachmentService,
+		private readonly executionRepository: AgentExecutionRepository,
 	) {}
 
 	async stopSession(
@@ -63,6 +65,43 @@ export class AgentSessionStopService {
 			]);
 		}
 		return { cancelRequested: true };
+	}
+
+	async stopDepartmentExecution(input: {
+		projectId: string;
+		agentId: string;
+		threadId: string;
+		ownerExecutionRef: string;
+		source?: 'ai-department' | 'ai-department-meeting' | 'ai-department-consultation';
+	}): Promise<boolean> {
+		const thread = await this.executionRepository.findThreadById(input.threadId);
+		if (
+			!thread ||
+			thread.projectId !== input.projectId ||
+			thread.agentId !== input.agentId ||
+			thread.ownerId === null ||
+			this.systemAgents.has(input.agentId)
+		)
+			return false;
+		const { executionIds, queueIds, attachmentIds } = await this.messageQueue.prepareDepartmentStop(
+			input.threadId,
+			input.ownerExecutionRef,
+			input.source ?? 'ai-department',
+		);
+		if (executionIds.length === 0 && queueIds.length === 0) return false;
+		const payload = { agentId: input.agentId, threadId: input.threadId, executionIds, queueIds };
+		this.onStopSession(payload);
+		try {
+			if (this.executionsConfig.mode === 'queue') {
+				await this.publisher.publishCommand({ command: 'stop-agent-session', payload });
+			}
+		} finally {
+			await Promise.all([
+				this.chatExecutionService.cancelSessionWork(input.agentId, input.threadId, executionIds),
+				this.attachments.deleteByIds(attachmentIds),
+			]);
+		}
+		return true;
 	}
 
 	@OnPubSubEvent('stop-agent-session')

@@ -27,6 +27,7 @@
 - **Decision**: Use new procedural room/desk/character primitives for the first release. Pin the renderer version and record its license/notice in the dependency and provenance review.
 - **Rationale**: No reference-model or avatar rights need to be assumed. Optional imported assets require exact source, immutable revision, license, and notice records before use.
 - **Alternative rejected**: Copy bundled My Office/Hub art under a repository-wide license assumption.
+- **Amendment 2026-11-06**: The Hub repository has a real MIT `LICENSE`. It has no binary art; its scene is procedural. Code and patterns from revision `c1e8ba18` may be adapted when the file header and `docs/design/org-office/PROVENANCE.md` record the source file, the revision, and the copyright notice. The Hub third-party notes (Remotion, voiceover) do not apply. The Hub server and hooks are not adopted.
 
 ### Rendering budget
 

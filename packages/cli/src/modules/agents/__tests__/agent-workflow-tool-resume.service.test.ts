@@ -16,6 +16,7 @@ import type { AgentExecutionOrchestratorService } from '../agent-execution-orche
 import type { AgentRepository } from '../repositories/agent.repository';
 import type { AgentTestRunService } from '../agent-test-run.service';
 import { AgentWorkflowToolResumeService } from '../agent-workflow-tool-resume.service';
+import type { AgentDepartmentWorkflowEventService } from '../agent-department-workflow-event.service';
 import type { AgentBackgroundJobService } from '../background/agent-background-job.service';
 import type { AgentChatBridge } from '../integrations/agent-chat-bridge';
 import type { ChatIntegrationService } from '../integrations/chat-integration.service';
@@ -62,6 +63,7 @@ function setup() {
 	const backgroundJobService = mock<AgentBackgroundJobService>();
 	const orchestratorService = mock<AgentExecutionOrchestratorService>();
 	const agentRepository = mock<AgentRepository>();
+	const departmentWorkflowEvents = mock<AgentDepartmentWorkflowEventService>();
 	const service = new AgentWorkflowToolResumeService(
 		logger,
 		userRepository,
@@ -75,6 +77,7 @@ function setup() {
 		backgroundJobService,
 		orchestratorService,
 		agentRepository,
+		departmentWorkflowEvents,
 	);
 	return {
 		service,
@@ -91,6 +94,7 @@ function setup() {
 		backgroundJobService,
 		orchestratorService,
 		agentRepository,
+		departmentWorkflowEvents,
 	};
 }
 
@@ -134,10 +138,19 @@ describe('AgentWorkflowToolResumeService production n8n Chat', () => {
 function afterContext(
 	status: IRun['status'],
 	parentAgentRun?: RelatedAgentRun,
+	invocationId?: string,
+	retryOf?: string,
 ): WorkflowExecuteAfterContext {
-	const data = createRunExecutionData({ resultData: { runData: {} } });
+	const data = createRunExecutionData({
+		resultData: {
+			runData: {},
+			...(invocationId ? { metadata: { aiDepartmentWorkflowInvocationId: invocationId } } : {}),
+		},
+	});
 	return mock<WorkflowExecuteAfterContext>({
 		executionId: 'exec-1',
+		workflow: { versionId: 'workflow-version-1' },
+		retryOf,
 		runData: {
 			status,
 			// The engine stamps this only on runs that ended without error or wait.
@@ -148,6 +161,55 @@ function afterContext(
 }
 
 describe('AgentWorkflowToolResumeService → lifecycle wiring', () => {
+	it.each([
+		['waiting', 'waiting' as const, false],
+		['success', 'succeeded' as const, true],
+		['error', 'failed' as const, false],
+		['canceled', 'cancelled' as const, false],
+	])('records the native %s outcome in the owner outbox', async (status, childState, finished) => {
+		const { service, departmentWorkflowEvents, checkpointStorage } = setup();
+		checkpointStorage.getStatus.mockResolvedValue({ status: 'not-found' } as never);
+		const ctx = afterContext(status as IRun['status'], agentRun, 'invocation-1');
+		ctx.runData.finished = finished;
+
+		await service.handleWorkflowExecuteAfter(ctx);
+
+		expect(departmentWorkflowEvents.record).toHaveBeenCalledWith({
+			projectId: agentRun.projectId,
+			invocationId: 'invocation-1',
+			ownerExecutionRef: 'exec-1',
+			actualWorkflowVersion: 'workflow-version-1',
+			childState,
+			occurredAt: expect.any(Date),
+		});
+	});
+
+	it('records a durable retry link before the retried execution outcome', async () => {
+		const { service, departmentWorkflowEvents, checkpointStorage } = setup();
+		checkpointStorage.getStatus.mockResolvedValue({ status: 'not-found' } as never);
+
+		await service.handleWorkflowExecuteAfter(
+			afterContext('success', agentRun, 'invocation-1', 'exec-original'),
+		);
+
+		expect(departmentWorkflowEvents.record).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({
+				ownerExecutionRef: 'exec-1',
+				retryOfExecutionRef: 'exec-original',
+				childState: 'retrying',
+			}),
+		);
+		expect(departmentWorkflowEvents.record).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				ownerExecutionRef: 'exec-1',
+				retryOfExecutionRef: 'exec-original',
+				childState: 'succeeded',
+			}),
+		);
+	});
+
 	it('resumes the agent run once the sub-workflow finishes', async () => {
 		const { service, bridge, chatIntegrationService } = setup();
 		chatIntegrationService.getBridge.mockReturnValue(bridge);

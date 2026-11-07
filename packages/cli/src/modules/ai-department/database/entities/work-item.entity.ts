@@ -26,6 +26,9 @@ export class WorkItem extends WithTimestamps {
 	@Column({ type: 'varchar', length: 36, nullable: true })
 	assigneeMemberId: string | null;
 
+	@Column({ type: 'uuid', nullable: true })
+	assignedByUserId: string | null;
+
 	@Column({ type: 'text' })
 	instruction: string;
 
@@ -37,6 +40,18 @@ export class WorkItem extends WithTimestamps {
 
 	@Column({ type: 'varchar', length: 16, default: 'required' })
 	reviewPolicy: AiDepartmentReviewPolicy;
+
+	@Column({ type: 'text', nullable: true })
+	reviewStagesJson: string | null;
+
+	@Column({ type: 'int', default: 1 })
+	reviewPolicyRevision: number;
+
+	@Column({ type: 'varchar', length: 36, nullable: true })
+	reviewPolicyRevisionId: string | null;
+
+	@Column({ type: 'int', default: 0 })
+	currentReviewStageIndex: number;
 
 	@Column({ type: 'varchar', length: 24, default: 'backlog' })
 	state: AiDepartmentWorkState;

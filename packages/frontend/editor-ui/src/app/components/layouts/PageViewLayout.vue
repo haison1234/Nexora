@@ -7,9 +7,9 @@ const { fullWidth = false } = defineProps<{
 <template>
 	<div :class="[$style.wrapper, fullWidth ? $style.fullWidth : '']">
 		<slot name="header" />
-		<main :class="$style.content">
+		<div :class="$style.content">
 			<slot />
-		</main>
+		</div>
 	</div>
 </template>
 

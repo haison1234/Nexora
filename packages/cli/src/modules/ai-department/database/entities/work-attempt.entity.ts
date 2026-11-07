@@ -2,13 +2,18 @@ import { DateTimeColumn, WithTimestamps } from '@n8n/db';
 import { Column, Entity, Index, PrimaryColumn } from '@n8n/typeorm';
 import type { AiDepartmentReviewPolicy } from '@n8n/api-types';
 
-export type WorkAttemptPhase = 'dispatching' | 'active' | 'suspended' | 'terminal';
+export type WorkAttemptPhase = 'dispatching' | 'active' | 'suspended' | 'stopping' | 'terminal';
 export type WorkAttemptOutcome = 'succeeded' | 'failed' | 'cancelled' | null;
+export type WorkReviewRoundStatus = 'open' | 'accepted' | 'returned' | 'reopened' | null;
 
 @Entity({ name: 'ai_department_work_attempt' })
 @Index(['workId', 'ordinal'], { unique: true })
-@Index(['workId'], { unique: true, where: "\"phase\" IN ('dispatching', 'active', 'suspended')" })
+@Index(['workId'], {
+	unique: true,
+	where: "\"phase\" IN ('dispatching', 'active', 'suspended', 'stopping')",
+})
 @Index(['projectId', 'ownerExecutionRef'])
+@Index(['projectId', 'memberId', 'initiatingUserId', 'bindingVersion', 'phase'])
 @Index(['dispatchKey'], { unique: true })
 export class WorkAttempt extends WithTimestamps {
 	@PrimaryColumn({ type: 'varchar', length: 36 })
@@ -44,8 +49,35 @@ export class WorkAttempt extends WithTimestamps {
 	@Column({ type: 'varchar', length: 16 })
 	reviewPolicy: AiDepartmentReviewPolicy;
 
+	@Column({ type: 'text', nullable: true })
+	reviewStagesJson: string | null;
+
+	@Column({ type: 'int', default: 1 })
+	reviewPolicyRevision: number;
+
+	@Column({ type: 'varchar', length: 36, nullable: true })
+	reviewPolicyRevisionId: string | null;
+
+	@Column({ type: 'varchar', length: 36, nullable: true })
+	submittedResultId: string | null;
+
+	@Column({ type: 'varchar', length: 36, nullable: true })
+	reviewRoundId: string | null;
+
+	@Column({ type: 'varchar', length: 16, nullable: true })
+	reviewRoundStatus: WorkReviewRoundStatus;
+
+	@DateTimeColumn({ nullable: true })
+	reviewRoundClosedAt: Date | null;
+
 	@Column({ type: 'varchar', length: 36 })
 	dispatchKey: string;
+
+	@Column({ type: 'text', default: '[]' })
+	workflowIdsJson: string;
+
+	@Column({ type: 'text', default: '[]' })
+	workflowCapabilitiesJson: string;
 
 	@Column({ type: 'varchar', length: 255, nullable: true })
 	ownerExecutionRef: string | null;

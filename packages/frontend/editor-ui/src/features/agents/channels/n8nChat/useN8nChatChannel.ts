@@ -7,7 +7,8 @@ import { useAgentsN8nChatFlag } from '../../composables/useAgentsN8nChatFlag';
 /**
  * n8n Chat is an internal integration: the catalog endpoint never lists it, so
  * the channel list, the builder chips and the status fetches add it here,
- * first in the list and only while its feature flag is on.
+ * first in the channel list and only while its feature flag is on, unless a
+ * caller explicitly keeps the channel visible in its picker.
  */
 export function useN8nChatChannel() {
 	const i18n = useI18n();
@@ -19,8 +20,15 @@ export function useN8nChatChannel() {
 		credentialTypes: [],
 	}));
 
-	function withN8nChat(integrations: ChatIntegrationDescriptor[]): ChatIntegrationDescriptor[] {
-		return isEnabled.value ? [descriptor.value, ...integrations] : integrations;
+	function withN8nChat(
+		integrations: ChatIntegrationDescriptor[],
+		{ includeWhenDisabled = false }: { includeWhenDisabled?: boolean } = {},
+	): ChatIntegrationDescriptor[] {
+		if (!isEnabled.value && !includeWhenDisabled) return integrations;
+		return [
+			descriptor.value,
+			...integrations.filter(({ type }) => type !== N8N_CHAT_INTEGRATION_TYPE),
+		];
 	}
 
 	return { isEnabled, withN8nChat };

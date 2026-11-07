@@ -1,3 +1,4 @@
+import { DateTimeColumn } from '@n8n/db';
 import { Column, Entity, PrimaryColumn } from '@n8n/typeorm';
 
 @Entity({ name: 'ai_department_executor_binding_revision' })
@@ -20,6 +21,6 @@ export class ExecutorBindingRevision {
 	@Column({ type: 'varchar', length: 36 })
 	changedById: string;
 
-	@Column({ type: 'datetime' })
+	@DateTimeColumn()
 	createdAt: Date;
 }

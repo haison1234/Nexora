@@ -7,7 +7,8 @@
 | archived | boolean | false | false |  |  |  |
 | createdAt | timestamp(3) with time zone | CURRENT_TIMESTAMP(3) | false |  |  |  |
 | departmentId | varchar(36) |  | false |  | [public.ai_department](public.ai_department.md) |  |
-| id | varchar(36) |  | false | [public.ai_department_executor_binding](public.ai_department_executor_binding.md) [public.ai_department_executor_binding_revision](public.ai_department_executor_binding_revision.md) [public.ai_department_goal](public.ai_department_goal.md) [public.ai_department_member](public.ai_department_member.md) [public.ai_department_work_attempt](public.ai_department_work_attempt.md) [public.ai_department_work_eligibility](public.ai_department_work_eligibility.md) [public.ai_department_work_item](public.ai_department_work_item.md) [public.ai_department_work_wake_lane](public.ai_department_work_wake_lane.md) |  |  |
+| expertiseTags | json | '[]'::json | false |  |  |  |
+| id | varchar(36) |  | false | [public.agent_department_consultation_invocation](public.agent_department_consultation_invocation.md) [public.ai_department_executor_binding](public.ai_department_executor_binding.md) [public.ai_department_executor_binding_revision](public.ai_department_executor_binding_revision.md) [public.ai_department_goal](public.ai_department_goal.md) [public.ai_department_meeting](public.ai_department_meeting.md) [public.ai_department_meeting_action_item](public.ai_department_meeting_action_item.md) [public.ai_department_meeting_invocation](public.ai_department_meeting_invocation.md) [public.ai_department_meeting_participant](public.ai_department_meeting_participant.md) [public.ai_department_member](public.ai_department_member.md) [public.ai_department_work_attempt](public.ai_department_work_attempt.md) [public.ai_department_work_eligibility](public.ai_department_work_eligibility.md) [public.ai_department_work_help_request](public.ai_department_work_help_request.md) [public.ai_department_work_help_response](public.ai_department_work_help_response.md) [public.ai_department_work_item](public.ai_department_work_item.md) [public.ai_department_work_wake_lane](public.ai_department_work_wake_lane.md) [public.ai_department_workflow_capability](public.ai_department_workflow_capability.md) |  |  |
 | managerMemberId | varchar(36) |  | true |  | [public.ai_department_member](public.ai_department_member.md) |  |
 | name | varchar(128) |  | false |  |  |  |
 | projectId | varchar(36) |  | false |  |  |  |
@@ -25,6 +26,7 @@
 | ai_department_member_archived_not_null | n | NOT NULL archived |
 | ai_department_member_createdAt_not_null | n | NOT NULL "createdAt" |
 | ai_department_member_departmentId_not_null | n | NOT NULL "departmentId" |
+| ai_department_member_expertiseTags_not_null | n | NOT NULL "expertiseTags" |
 | ai_department_member_id_not_null | n | NOT NULL id |
 | ai_department_member_name_not_null | n | NOT NULL name |
 | ai_department_member_projectId_not_null | n | NOT NULL "projectId" |
@@ -46,19 +48,30 @@
 erDiagram
 
 "public.ai_department_member" }o--|| "public.ai_department" : "FOREIGN KEY (#quot;departmentId#quot;) REFERENCES ai_department(id) ON DELETE CASCADE"
+"public.agent_department_consultation_invocation" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;requesterMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
+"public.agent_department_consultation_invocation" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;recipientMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
 "public.ai_department_executor_binding" |o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
 "public.ai_department_executor_binding_revision" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
 "public.ai_department_goal" }o--o| "public.ai_department_member" : "FOREIGN KEY (#quot;ownerMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE SET NULL"
+"public.ai_department_meeting" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;facilitatorMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE RESTRICT"
+"public.ai_department_meeting_action_item" }o--o| "public.ai_department_member" : "FOREIGN KEY (#quot;assigneeMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE SET NULL"
+"public.ai_department_meeting_invocation" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE RESTRICT"
+"public.ai_department_meeting_participant" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE RESTRICT"
 "public.ai_department_member" }o--o| "public.ai_department_member" : "FOREIGN KEY (#quot;managerMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE SET NULL"
 "public.ai_department_work_attempt" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE RESTRICT"
 "public.ai_department_work_eligibility" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
+"public.ai_department_work_help_request" }o--o| "public.ai_department_member" : "FOREIGN KEY (#quot;recipientMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE SET NULL"
+"public.ai_department_work_help_request" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;requesterMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
+"public.ai_department_work_help_response" }o--o| "public.ai_department_member" : "FOREIGN KEY (#quot;responderMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE SET NULL"
 "public.ai_department_work_item" }o--o| "public.ai_department_member" : "FOREIGN KEY (#quot;assigneeMemberId#quot;) REFERENCES ai_department_member(id) ON DELETE SET NULL"
 "public.ai_department_work_wake_lane" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
+"public.ai_department_workflow_capability" }o--|| "public.ai_department_member" : "FOREIGN KEY (#quot;memberId#quot;) REFERENCES ai_department_member(id) ON DELETE CASCADE"
 
 "public.ai_department_member" {
   boolean archived
   timestamp_3__with_time_zone createdAt
   varchar_36_ departmentId FK
+  json expertiseTags
   varchar_36_ id
   varchar_36_ managerMemberId FK
   varchar_128_ name
@@ -78,6 +91,40 @@ erDiagram
   integer projectionSequence
   timestamp_3__with_time_zone updatedAt
   integer version
+}
+"public.agent_department_consultation_invocation" {
+  uuid actorId
+  integer bindingVersion
+  varchar_64_ commandKey
+  varchar_64_ contextHash
+  varchar_255_ contextRef
+  timestamp_3__with_time_zone createdAt
+  timestamp_3__with_time_zone deadlineAt
+  varchar_36_ departmentId FK
+  varchar_36_ executorId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id
+  varchar_64_ inputHash
+  text inputText
+  varchar_36_ invocationId
+  integer maxOutputChars
+  integer maxOutputTokens
+  varchar_16_ outcome
+  varchar_36_ projectId FK
+  varchar_36_ recipientMemberId FK
+  varchar_36_ requesterMemberId FK
+  varchar_64_ resultHash
+  text resultText
+  varchar_64_ safeErrorCode
+  varchar_64_ sequence
+  varchar_36_ sourceAttemptId FK
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  varchar_64_ stopPayloadHash
+  timestamp_3__with_time_zone stopRequestedAt
+  timestamp_3__with_time_zone terminalAt
+  varchar_128_ threadId
+  timestamp_3__with_time_zone updatedAt
 }
 "public.ai_department_executor_binding" {
   timestamp_3__with_time_zone createdAt
@@ -111,6 +158,94 @@ erDiagram
   timestamp_3__with_time_zone updatedAt
   integer version
 }
+"public.ai_department_meeting" {
+  json absenceSnapshots
+  varchar_16_ collectionCloseReason
+  timestamp_3__with_time_zone collectionClosedAt
+  timestamp_3__with_time_zone collectionDeadlineAt
+  timestamp_3__with_time_zone completedAt
+  timestamp_3__with_time_zone createdAt
+  uuid createdBy
+  varchar_36_ departmentId FK
+  text desiredOutcome
+  uuid executionActorId
+  varchar_36_ facilitatorMemberId FK
+  json frozenContributionIds
+  varchar_36_ goalId
+  varchar_36_ id
+  varchar_36_ projectId FK
+  varchar_16_ purpose
+  json referencedWorkIds
+  timestamp_3__with_time_zone startedAt
+  varchar_16_ state
+  varchar_256_ topic
+  timestamp_3__with_time_zone updatedAt
+  integer version
+}
+"public.ai_department_meeting_action_item" {
+  timestamp_3__with_time_zone approvedAt
+  uuid approvedBy
+  varchar_36_ assigneeMemberId FK
+  varchar_36_ conversionRequestId
+  timestamp_3__with_time_zone createdAt
+  varchar_36_ departmentId
+  text description
+  varchar_36_ id
+  varchar_36_ meetingId FK
+  varchar_36_ minutesId FK
+  varchar_64_ payloadHash
+  varchar_36_ projectId
+  text resolutionReason
+  timestamp_3__with_time_zone resolvedAt
+  json sourceContributionIds
+  varchar_24_ state
+  varchar_256_ title
+  timestamp_3__with_time_zone updatedAt
+  varchar_36_ workId
+}
+"public.ai_department_meeting_invocation" {
+  uuid actorId
+  integer bindingVersion
+  varchar_255_ contextRef
+  timestamp_3__with_time_zone createdAt
+  timestamp_3__with_time_zone deadlineAt
+  varchar_36_ departmentId
+  varchar_36_ executorId
+  varchar_36_ id
+  varchar_64_ inputHash
+  varchar_16_ kind
+  varchar_36_ meetingId FK
+  varchar_36_ memberId FK
+  varchar_255_ ownerInvocationRef
+  varchar_64_ ownerSequence
+  varchar_36_ participantId FK
+  varchar_36_ projectId
+  varchar_64_ requestKey
+  varchar_36_ retryOfInvocationId FK
+  varchar_64_ safeFailureCode
+  varchar_512_ safeFailureSummary
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  timestamp_3__with_time_zone terminalAt
+  timestamp_3__with_time_zone updatedAt
+}
+"public.ai_department_meeting_participant" {
+  integer bindingVersion
+  timestamp_3__with_time_zone createdAt
+  varchar_36_ departmentId
+  text exclusionReason
+  varchar_36_ executorId
+  boolean facilitator
+  varchar_36_ id
+  varchar_36_ meetingId FK
+  varchar_36_ memberId FK
+  varchar_128_ memberNameSnapshot
+  varchar_36_ projectId
+  varchar_16_ responseState
+  varchar_128_ roleSnapshot
+  timestamp_3__with_time_zone updatedAt
+  integer version
+}
 "public.ai_department_work_attempt" {
   integer bindingVersion
   varchar_36_ cancelRequestId
@@ -132,10 +267,19 @@ erDiagram
   varchar_64_ provider
   varchar_255_ resultReference
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  timestamp_3__with_time_zone reviewRoundClosedAt
+  varchar_36_ reviewRoundId
+  varchar_16_ reviewRoundStatus
+  text reviewStagesJson
   text safeSummary
   timestamp_3__with_time_zone startedAt
+  varchar_36_ submittedResultId
   timestamp_3__with_time_zone updatedAt
   varchar_36_ workId FK
+  text workflowCapabilitiesJson
+  text workflowIdsJson
 }
 "public.ai_department_work_eligibility" {
   uuid actorId
@@ -152,10 +296,56 @@ erDiagram
   varchar_16_ state
   varchar_36_ workId FK
 }
+"public.ai_department_work_help_request" {
+  text attemptedStepsJson
+  integer bindingVersion
+  timestamp_3__with_time_zone createdAt
+  timestamp_3__with_time_zone deadlineAt
+  varchar_36_ departmentId FK
+  text expertiseTagsJson
+  varchar_36_ id
+  uuid initiatingUserId FK
+  varchar_64_ inputHash
+  varchar_64_ ownerInvocationHash
+  varchar_128_ ownerReference
+  varchar_36_ projectId FK
+  text question
+  text reason
+  varchar_36_ recipientMemberId FK
+  uuid recipientUserId FK
+  text requestChainJson
+  varchar_36_ requestId
+  varchar_36_ requesterMemberId FK
+  varchar_32_ routingState
+  varchar_36_ sourceAttemptId FK
+  varchar_24_ state
+  timestamp_3__with_time_zone updatedAt
+  integer version
+  varchar_36_ workId FK
+}
+"public.ai_department_work_help_response" {
+  varchar_36_ activityId FK
+  text answer
+  varchar_64_ answerHash
+  timestamp_3__with_time_zone createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id
+  varchar_128_ ownerInvocationRef
+  integer ownerSequence
+  varchar_36_ projectId FK
+  varchar_16_ responderKind
+  varchar_36_ responderMemberId FK
+  uuid responderUserId FK
+  varchar_36_ sourceAttemptId FK
+  varchar_36_ workId FK
+}
 "public.ai_department_work_item" {
+  uuid assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   timestamp_3__with_time_zone createdAt
   varchar_36_ currentAttemptId FK
+  integer currentReviewStageIndex
   varchar_36_ departmentId FK
   timestamp_3__with_time_zone dueAt
   varchar_36_ goalId FK
@@ -164,12 +354,16 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  integer reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  text reviewStagesJson
   varchar_24_ state
   timestamp_3__with_time_zone updatedAt
   integer version
 }
 "public.ai_department_work_wake_lane" {
   integer acknowledgedGeneration
+  varchar_36_ activeAttemptId
   uuid actorId
   integer bindingVersion
   timestamp_3__with_time_zone createdAt
@@ -178,6 +372,21 @@ erDiagram
   varchar_36_ projectId
   varchar_16_ state
   timestamp_3__with_time_zone updatedAt
+}
+"public.ai_department_workflow_capability" {
+  timestamp_3__with_time_zone createdAt
+  varchar_36_ departmentId FK
+  boolean enabled
+  varchar_36_ id
+  varchar_128_ inputSchemaFingerprint
+  varchar_36_ memberId FK
+  varchar_36_ projectId
+  varchar_36_ publishedVersionRef
+  text purpose
+  varchar_128_ triggerCompatibilityRef
+  timestamp_3__with_time_zone updatedAt
+  integer version
+  varchar_36_ workflowId
 }
 ```
 

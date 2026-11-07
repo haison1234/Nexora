@@ -9,7 +9,7 @@
 | customTelemetryTags | json | '[]'::json | false |  |  |  |
 | description | varchar(512) |  | true |  |  |  |
 | icon | json |  | true |  |  |  |
-| id | varchar(36) |  | false | [public.activity_event](public.activity_event.md) [public.agent_chat_attachments](public.agent_chat_attachments.md) [public.agent_execution_threads](public.agent_execution_threads.md) [public.agents](public.agents.md) [public.ai_department](public.ai_department.md) [public.ai_department_directory_change](public.ai_department_directory_change.md) [public.ai_preference](public.ai_preference.md) [public.app](public.app.md) [public.data_table](public.data_table.md) [public.folder](public.folder.md) [public.insights_metadata](public.insights_metadata.md) [public.instance_ai_threads](public.instance_ai_threads.md) [public.project_pool_settings](public.project_pool_settings.md) [public.project_relation](public.project_relation.md) [public.project_secrets_provider_access](public.project_secrets_provider_access.md) [public.promotion_environment_project](public.promotion_environment_project.md) [public.role_mapping_rule_project](public.role_mapping_rule_project.md) [public.self_healing_configuration](public.self_healing_configuration.md) [public.self_healing_configuration_workflow](public.self_healing_configuration_workflow.md) [public.self_healing_investigation](public.self_healing_investigation.md) [public.self_healing_result](public.self_healing_result.md) [public.shared_credentials](public.shared_credentials.md) [public.shared_workflow](public.shared_workflow.md) [public.skill](public.skill.md) [public.skill_source](public.skill_source.md) [public.type_availability_policy_scope](public.type_availability_policy_scope.md) [public.variables](public.variables.md) [public.workflow_review_request](public.workflow_review_request.md) [public.workflow_suggestion](public.workflow_suggestion.md) |  |  |
+| id | varchar(36) |  | false | [public.activity_event](public.activity_event.md) [public.agent_chat_attachments](public.agent_chat_attachments.md) [public.agent_department_consultation_invocation](public.agent_department_consultation_invocation.md) [public.agent_execution_threads](public.agent_execution_threads.md) [public.agents](public.agents.md) [public.ai_department](public.ai_department.md) [public.ai_department_directory_change](public.ai_department_directory_change.md) [public.ai_department_meeting](public.ai_department_meeting.md) [public.ai_department_work_help_request](public.ai_department_work_help_request.md) [public.ai_department_work_help_response](public.ai_department_work_help_response.md) [public.ai_preference](public.ai_preference.md) [public.app](public.app.md) [public.data_table](public.data_table.md) [public.folder](public.folder.md) [public.insights_metadata](public.insights_metadata.md) [public.instance_ai_threads](public.instance_ai_threads.md) [public.project_pool_settings](public.project_pool_settings.md) [public.project_relation](public.project_relation.md) [public.project_secrets_provider_access](public.project_secrets_provider_access.md) [public.promotion_environment_project](public.promotion_environment_project.md) [public.role_mapping_rule_project](public.role_mapping_rule_project.md) [public.self_healing_configuration](public.self_healing_configuration.md) [public.self_healing_configuration_workflow](public.self_healing_configuration_workflow.md) [public.self_healing_investigation](public.self_healing_investigation.md) [public.self_healing_result](public.self_healing_result.md) [public.shared_credentials](public.shared_credentials.md) [public.shared_workflow](public.shared_workflow.md) [public.skill](public.skill.md) [public.skill_source](public.skill_source.md) [public.type_availability_policy_scope](public.type_availability_policy_scope.md) [public.variables](public.variables.md) [public.workflow_review_request](public.workflow_review_request.md) [public.workflow_suggestion](public.workflow_suggestion.md) |  |  |
 | name | varchar(255) |  | false |  |  |  |
 | type | varchar(36) |  | false |  |  |  |
 | updatedAt | timestamp(3) with time zone | CURRENT_TIMESTAMP(3) | false |  |  |  |
@@ -41,10 +41,14 @@ erDiagram
 "public.project" }o--o| "public.user" : "FOREIGN KEY (#quot;creatorId#quot;) REFERENCES #quot;user#quot;(id) ON DELETE SET NULL"
 "public.activity_event" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.agent_chat_attachments" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
+"public.agent_department_consultation_invocation" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.agent_execution_threads" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.agents" }o--o| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.ai_department" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.ai_department_directory_change" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
+"public.ai_department_meeting" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
+"public.ai_department_work_help_request" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
+"public.ai_department_work_help_response" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.ai_preference" }o--o| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.app" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
 "public.data_table" }o--|| "public.project" : "FOREIGN KEY (#quot;projectId#quot;) REFERENCES project(id) ON DELETE CASCADE"
@@ -126,11 +130,46 @@ erDiagram
   varchar_128_ threadId
   timestamp_3__with_time_zone updatedAt
 }
+"public.agent_department_consultation_invocation" {
+  uuid actorId
+  integer bindingVersion
+  varchar_64_ commandKey
+  varchar_64_ contextHash
+  varchar_255_ contextRef
+  timestamp_3__with_time_zone createdAt
+  timestamp_3__with_time_zone deadlineAt
+  varchar_36_ departmentId FK
+  varchar_36_ executorId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id
+  varchar_64_ inputHash
+  text inputText
+  varchar_36_ invocationId
+  integer maxOutputChars
+  integer maxOutputTokens
+  varchar_16_ outcome
+  varchar_36_ projectId FK
+  varchar_36_ recipientMemberId FK
+  varchar_36_ requesterMemberId FK
+  varchar_64_ resultHash
+  text resultText
+  varchar_64_ safeErrorCode
+  varchar_64_ sequence
+  varchar_36_ sourceAttemptId FK
+  varchar_16_ state
+  varchar_36_ stopCommandId
+  varchar_64_ stopPayloadHash
+  timestamp_3__with_time_zone stopRequestedAt
+  timestamp_3__with_time_zone terminalAt
+  varchar_128_ threadId
+  timestamp_3__with_time_zone updatedAt
+}
 "public.agent_execution_threads" {
   varchar_16_ accessScope
   varchar_36_ agentId FK
   varchar_255_ agentName
   timestamp_3__with_time_zone createdAt
+  integer departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id
   uuid ownerId FK
@@ -187,6 +226,74 @@ erDiagram
   integer entityVersion
   varchar_36_ id
   varchar_36_ projectId FK
+}
+"public.ai_department_meeting" {
+  json absenceSnapshots
+  varchar_16_ collectionCloseReason
+  timestamp_3__with_time_zone collectionClosedAt
+  timestamp_3__with_time_zone collectionDeadlineAt
+  timestamp_3__with_time_zone completedAt
+  timestamp_3__with_time_zone createdAt
+  uuid createdBy
+  varchar_36_ departmentId FK
+  text desiredOutcome
+  uuid executionActorId
+  varchar_36_ facilitatorMemberId FK
+  json frozenContributionIds
+  varchar_36_ goalId
+  varchar_36_ id
+  varchar_36_ projectId FK
+  varchar_16_ purpose
+  json referencedWorkIds
+  timestamp_3__with_time_zone startedAt
+  varchar_16_ state
+  varchar_256_ topic
+  timestamp_3__with_time_zone updatedAt
+  integer version
+}
+"public.ai_department_work_help_request" {
+  text attemptedStepsJson
+  integer bindingVersion
+  timestamp_3__with_time_zone createdAt
+  timestamp_3__with_time_zone deadlineAt
+  varchar_36_ departmentId FK
+  text expertiseTagsJson
+  varchar_36_ id
+  uuid initiatingUserId FK
+  varchar_64_ inputHash
+  varchar_64_ ownerInvocationHash
+  varchar_128_ ownerReference
+  varchar_36_ projectId FK
+  text question
+  text reason
+  varchar_36_ recipientMemberId FK
+  uuid recipientUserId FK
+  text requestChainJson
+  varchar_36_ requestId
+  varchar_36_ requesterMemberId FK
+  varchar_32_ routingState
+  varchar_36_ sourceAttemptId FK
+  varchar_24_ state
+  timestamp_3__with_time_zone updatedAt
+  integer version
+  varchar_36_ workId FK
+}
+"public.ai_department_work_help_response" {
+  varchar_36_ activityId FK
+  text answer
+  varchar_64_ answerHash
+  timestamp_3__with_time_zone createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id
+  varchar_128_ ownerInvocationRef
+  integer ownerSequence
+  varchar_36_ projectId FK
+  varchar_16_ responderKind
+  varchar_36_ responderMemberId FK
+  uuid responderUserId FK
+  varchar_36_ sourceAttemptId FK
+  varchar_36_ workId FK
 }
 "public.ai_preference" {
   text content

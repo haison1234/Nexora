@@ -332,6 +332,29 @@ describe('N8nMenuItem', () => {
 			expect(menuItem).toHaveAttribute('role', 'menuitem');
 		});
 
+		it('supports link semantics inside navigation', () => {
+			const { getByTestId } = render(N8nMenuItem, {
+				props: {
+					item: createMenuItem({ route: { to: { name: 'workflows' } } }),
+					role: 'link',
+				},
+				global: { stubs },
+			});
+			expect(getByTestId('menu-item')).toHaveAttribute('role', 'link');
+		});
+
+		it('renders a focusable button wrapper for popover triggers', () => {
+			const { getByTestId } = render(N8nMenuItem, {
+				props: { item: createMenuItem(), trigger: true },
+				global: { stubs },
+			});
+
+			expect(getByTestId('test-item')).toHaveAttribute('role', 'button');
+			expect(getByTestId('test-item')).toHaveAttribute('tabindex', '0');
+			expect(getByTestId('test-item')).toHaveAttribute('aria-label', 'Test Item');
+			expect(getByTestId('menu-item')).not.toHaveAttribute('role');
+		});
+
 		it('should render with external link', () => {
 			const { getByTestId } = render(N8nMenuItem, {
 				props: {

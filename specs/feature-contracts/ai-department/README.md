@@ -70,10 +70,10 @@ The remaining gates are technical evidence or owner-contract checks.
 | D8 | What is the live protocol? | Existing n8n push infrastructure with a new typed department invalidation and authorized subscription. Department revision orders snapshots. Reconnect always reads a full snapshot; no durable event replay cursor in v1. Visible fallback polls every four seconds. The five-second update target applies only to healthy push on a visible page. | C6 current-access checks at send time and revision allocation |
 | D9 | Do due dates schedule execution? | RFC 3339 UTC timestamps; local display. Dates are planning metadata and do not create timer wakes. | UI acceptance only |
 
-D3 deliberately tightens the current same-attempt reclaim design. D4 changes the current
-required-policy default from unrestricted project writers to a human review stage. D6
-requires explicit capability revalidation after publication changes. These choices need
-user approval because they affect recovery, review access, and workflow upgrades.
+D3 tightens the former same-attempt reclaim design. D4 changes the required-policy
+default from unrestricted project writers to a human review stage. D6 requires explicit
+capability revalidation after publication changes. The user accepted D1–D9 in Feature
+Contract v1; implementation and runtime acceptance remain separate gates.
 
 ## Common command, identity, and access rules
 
@@ -120,17 +120,20 @@ C2 task generation record:
 - [x] G1 ownership design is closed from current source review.
 - [x] G2 stop/recovery owner contract is defined in `execution.md`.
 - [x] C2 tasks T022–T030 are generated as the next dependency slice only.
-- [ ] G1/G2 runtime acceptance remains open; do not enable unverified wake or stop behavior.
+- [ ] G1 wake/coalescing runtime acceptance remains open; do not enable unverified wake behavior.
+- [ ] G2 live stop and restart acceptance. Current live evidence shows receipt persistence followed by sweeper-driven interruption and reconciliation; it does not prove the stop request ended a live run. See evidence.md.
 
 C2 implementation progress:
 
 - [x] T022 eligibility/lane persistence model, migration, repository methods, ownership-transfer policy, and generated schema docs are in place.
 - [x] T023 eligibility writes for readiness, ready reassignment, review return, and explicit start are wired with replay protection. Handoff eligibility remains T027; lane coalescing/drain recovery remain T025. C2 acceptance remains open.
-- [x] T024 lane-bound assigned-work inbox service/API with project/member/binding checks and stable keyset pagination is implemented. Runtime Agent invocation remains T029.
-- [ ] T025–T030 remain open.
+- [x] T024 lane-bound assigned-work inbox service/API with project/member/binding checks and stable keyset pagination is implemented.
+- [x] T025–T030 controlled implementation and test tasks are complete.
+- [x] D3 source implementation stores claim generation, blocks same-attempt takeover, and requires retry to create the next attempt. Controlled C3-A2 coverage passes; native owner stop and restart acceptance remains open.
+- [ ] G2 live native stop and durable sequence acceptance remain open. Controlled revocation/stop tests pass; live restart evidence is limited to run 2 and sweeper-driven recovery. G1 and remaining C3 runtime acceptance remain open.
 
-C1 design and acceptance are closed. G1 and G2 ownership designs are closed, with runtime
-acceptance still open. C2 tasks may now be generated as one dependency slice. G2 runtime
+C1 design and acceptance are closed. G1 and G2 ownership designs are closed. G1 and G2 live
+runtime acceptance remain open. C2 tasks may now be generated as one dependency slice. G2 runtime
 proof remains required for handoff/recovery acceptance. G3 blocks only Agent-review
 authority. G4–G5 block workflow invocation. G6 blocks
 live push. C6A remains independently schedulable after its API inputs. Runtime acceptance

@@ -30,6 +30,7 @@
     "@n8n/stores": "workspace:*",
     "n8n-workflow": "workspace:*",
     "pinia": "catalog:frontend",
+    "three": "catalog:",
     "vue": "catalog:frontend",
     "vue-router": "catalog:frontend"
   },
@@ -44,8 +45,10 @@
     "@n8n/vitest-config": "workspace:*",
     "@testing-library/jest-dom": "catalog:frontend",
     "@testing-library/vue": "catalog:frontend",
+    "@types/three": "catalog:",
     "@vitejs/plugin-vue": "catalog:frontend",
     "eslint": "catalog:",
+    "fake-indexeddb": "catalog:",
     "stylelint": "catalog:",
     "typescript": "catalog:",
     "unplugin-icons": "catalog:frontend",

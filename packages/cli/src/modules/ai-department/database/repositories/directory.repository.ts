@@ -135,8 +135,43 @@ export class DirectoryRepository {
 		return saved;
 	}
 
+	async listMemberExpertiseTags(
+		projectId: string,
+		departmentId: string,
+		memberId: string,
+		ctx: OperationContext = {},
+	) {
+		const member = await this.manager(ctx).findOneBy(Member, {
+			id: memberId,
+			projectId,
+			departmentId,
+		});
+		return member?.expertiseTags ?? null;
+	}
+
+	async saveMemberExpertise(member: Member, ctx: OperationContext = {}) {
+		const manager = this.manager(ctx);
+		const saved = await manager.save(Member, member);
+		await manager.increment(
+			Department,
+			{ id: saved.departmentId, projectId: saved.projectId },
+			'projectionSequence',
+			1,
+		);
+		return saved;
+	}
+
 	async findBinding(projectId: string, memberId: string, ctx: OperationContext = {}) {
 		return await this.manager(ctx).findOneBy(ExecutorBinding, { projectId, memberId });
+	}
+
+	async findLatestBindingVersion(memberId: string, ctx: OperationContext = {}) {
+		const revision = await this.manager(ctx).findOne(ExecutorBindingRevision, {
+			select: ['version'],
+			where: { memberId },
+			order: { version: 'DESC' },
+		});
+		return revision?.version ?? null;
 	}
 
 	async saveBinding(binding: ExecutorBinding, ctx: OperationContext = {}) {

@@ -25,6 +25,7 @@ import { ChatIntegrationService } from './integrations/chat-integration.service'
 import { readIntegrationMessageContext } from './integrations/integration-message-context';
 import { IntegrationMessageContextService } from './integrations/integration-message-context.service';
 import { N8NCheckpointStorage } from './integrations/n8n-checkpoint-storage';
+import { AgentDepartmentWorkflowEventService } from './agent-department-workflow-event.service';
 
 /**
  * Wakes the agent tool call a finished sub-execution belongs to, from the
@@ -47,6 +48,7 @@ export class AgentWorkflowToolResumeService {
 		private readonly backgroundJobService: AgentBackgroundJobService,
 		private readonly agentExecutionOrchestratorService: AgentExecutionOrchestratorService,
 		private readonly agentRepository: AgentRepository,
+		private readonly departmentWorkflowEvents: AgentDepartmentWorkflowEventService,
 	) {
 		this.logger = this.logger.scoped('agents');
 	}
@@ -55,6 +57,7 @@ export class AgentWorkflowToolResumeService {
 	async handleWorkflowExecuteAfter(ctx: WorkflowExecuteAfterContext): Promise<void> {
 		const agentRun = ctx.runData.data.parentAgentRun;
 		if (!agentRun) return; // Not a sub-execution started by an agent workflow tool.
+		await this.recordDepartmentWorkflowOutcome(ctx);
 		// Parked at a Wait node, so the workflow has not finished.
 		if (ctx.runData.status === 'waiting') return;
 
@@ -81,6 +84,50 @@ export class AgentWorkflowToolResumeService {
 		}
 
 		await this.resumeSafely(agentRun, ctx.runData.status);
+	}
+
+	private async recordDepartmentWorkflowOutcome(ctx: WorkflowExecuteAfterContext): Promise<void> {
+		const metadata = ctx.runData.data.resultData?.metadata;
+		const invocationId = metadata?.aiDepartmentWorkflowInvocationId;
+		const agentRun = ctx.runData.data.parentAgentRun;
+		const workflowVersion = ctx.workflow?.versionId;
+		if (typeof invocationId !== 'string' || typeof workflowVersion !== 'string' || !agentRun)
+			return;
+
+		const status = ctx.runData.status;
+		const childState =
+			status === 'waiting'
+				? 'waiting'
+				: status === 'success' && ctx.runData.finished
+					? 'succeeded'
+					: status === 'error' || status === 'crashed'
+						? 'failed'
+						: status === 'canceled'
+							? 'cancelled'
+							: 'running';
+		try {
+			const event = {
+				projectId: agentRun.projectId,
+				invocationId,
+				ownerExecutionRef: ctx.executionId,
+				...(ctx.retryOf ? { retryOfExecutionRef: String(ctx.retryOf) } : {}),
+				actualWorkflowVersion: workflowVersion,
+				occurredAt: new Date(),
+			};
+			if (ctx.retryOf) {
+				await this.departmentWorkflowEvents.record({
+					...event,
+					childState: 'retrying',
+				});
+			}
+			await this.departmentWorkflowEvents.record({ ...event, childState });
+		} catch (error) {
+			this.logger.warn('Failed to persist department workflow outcome', {
+				invocationId,
+				executionId: ctx.executionId,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
 
 	@OnPubSubEvent('resume-agent-workflow-tool', { instanceType: 'main' })

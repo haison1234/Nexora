@@ -6,7 +6,7 @@
 <summary><strong>Table Definition</strong></summary>
 
 ```sql
-CREATE TABLE "ai_department_work_wake_lane" ("projectId" varchar(36) NOT NULL, "memberId" varchar(36) NOT NULL, "actorId" varchar NOT NULL, "bindingVersion" integer NOT NULL, "generation" integer NOT NULL, "acknowledgedGeneration" integer NOT NULL, "state" varchar(16) NOT NULL, "updatedAt" datetime(3) NOT NULL, "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), CONSTRAINT "CHK_ai_department_work_wake_lane_state" CHECK ("state" IN ('pending', 'accepted', 'coalesced', 'unknown', 'delivered', 'rejected')), CONSTRAINT "FK_246d2f6a6def9540f1e4dc9b823" FOREIGN KEY ("memberId") REFERENCES "ai_department_member" ("id") ON DELETE CASCADE, PRIMARY KEY ("projectId", "memberId", "actorId", "bindingVersion"))
+CREATE TABLE "ai_department_work_wake_lane" ("projectId" varchar(36) NOT NULL, "memberId" varchar(36) NOT NULL, "actorId" varchar NOT NULL, "bindingVersion" integer NOT NULL, "generation" integer NOT NULL, "acknowledgedGeneration" integer NOT NULL, "state" varchar(16) NOT NULL, "updatedAt" datetime(3) NOT NULL, "createdAt" datetime(3) NOT NULL DEFAULT (STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')), "activeAttemptId" varchar(36), CONSTRAINT "CHK_ai_department_work_wake_lane_state" CHECK (("state" IN ('pending', 'accepted', 'coalesced', 'unknown', 'delivered', 'rejected'))), CONSTRAINT "FK_246d2f6a6def9540f1e4dc9b823" FOREIGN KEY ("memberId") REFERENCES "ai_department_member" ("id") ON DELETE CASCADE ON UPDATE NO ACTION, PRIMARY KEY ("projectId", "memberId", "actorId", "bindingVersion"))
 ```
 
 </details>
@@ -16,6 +16,7 @@ CREATE TABLE "ai_department_work_wake_lane" ("projectId" varchar(36) NOT NULL, "
 | Name | Type | Default | Nullable | Children | Parents | Comment |
 | ---- | ---- | ------- | -------- | -------- | ------- | ------- |
 | acknowledgedGeneration | INTEGER |  | false |  |  |  |
+| activeAttemptId | varchar(36) |  | true |  |  |  |
 | actorId | varchar |  | false |  |  |  |
 | bindingVersion | INTEGER |  | false |  |  |  |
 | createdAt | datetime(3) | STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW') | false |  |  |  |
@@ -29,7 +30,7 @@ CREATE TABLE "ai_department_work_wake_lane" ("projectId" varchar(36) NOT NULL, "
 
 | Name | Type | Definition |
 | ---- | ---- | ---------- |
-| - | CHECK | CHECK ("state" IN ('pending', 'accepted', 'coalesced', 'unknown', 'delivered', 'rejected')) |
+| - | CHECK | CHECK (("state" IN ('pending', 'accepted', 'coalesced', 'unknown', 'delivered', 'rejected'))) |
 | - (Foreign key ID: 0) | FOREIGN KEY | FOREIGN KEY (memberId) REFERENCES ai_department_member (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE |
 | actorId | PRIMARY KEY | PRIMARY KEY (actorId) |
 | bindingVersion | PRIMARY KEY | PRIMARY KEY (bindingVersion) |
@@ -53,6 +54,7 @@ erDiagram
 
 "ai_department_work_wake_lane" {
   INTEGER acknowledgedGeneration
+  varchar_36_ activeAttemptId
   varchar actorId PK
   INTEGER bindingVersion PK
   datetime_3_ createdAt
@@ -66,6 +68,7 @@ erDiagram
   boolean archived
   datetime_3_ createdAt
   varchar_36_ departmentId FK
+  TEXT expertiseTags
   varchar_36_ id PK
   varchar_36_ managerMemberId FK
   varchar_128_ name

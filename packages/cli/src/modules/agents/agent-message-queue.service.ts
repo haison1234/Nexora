@@ -5,6 +5,7 @@ import { Service } from '@n8n/di';
 import { OperationalError, UnexpectedError, UserError } from 'n8n-workflow';
 
 import { ConflictError, BadRequestError, NotFoundError } from '@n8n/errors';
+import { createHash } from 'node:crypto';
 
 import { AgentChatAttachmentService } from './agent-chat-attachment.service';
 import { AgentMessageSteeringService } from './agent-message-steering.service';
@@ -33,6 +34,8 @@ import {
 	type QueuedIntegrationMessage,
 	type QueuedUserChatMessage,
 } from './types/agent-queued-message';
+import type { DepartmentMeetingInvocationRequest } from './agent-department-meeting-invocation.contracts';
+import type { DepartmentConsultationInvocationRequest } from './agent-department-consultation.contracts';
 import {
 	canContinueThreadOnSurface,
 	chatSurfaceForKind,
@@ -48,6 +51,30 @@ export interface ClaimedAgentMessage {
 	/** Admission identifies the committed execution that the turn pipeline must reuse. */
 	admission: AgentExecutionAdmission;
 	recording: StartExecutionParams;
+}
+
+function meetingQueuePayload(request: DepartmentMeetingInvocationRequest) {
+	return {
+		kind: 'n8n_chat' as const,
+		userId: request.actorId,
+		messageId: request.requestKey,
+		message: 'Process the supplied meeting context for this invocation.',
+		resourceId: `ai-department-meeting:${request.meetingId}:${request.invocationId}`,
+		hidden: true,
+		departmentMeetingInvocation: request,
+	};
+}
+
+function consultationQueuePayload(request: DepartmentConsultationInvocationRequest) {
+	return {
+		kind: 'n8n_chat' as const,
+		userId: request.actorId,
+		messageId: request.commandKey,
+		message: request.inputText ?? '',
+		resourceId: `ai-department-consultation:${request.helpRequestId}:${request.invocationId}`,
+		hidden: true,
+		departmentConsultationInvocation: request,
+	};
 }
 
 interface PendingMessageScope {
@@ -93,6 +120,65 @@ export class AgentMessageQueueService {
 		onInserted?: (queueId: string) => void,
 	): Promise<{ status: 'accepted'; item: AgentMessageQueue } | { status: 'duplicate' }> {
 		const { payload } = input;
+		if (
+			input.source === 'ai-department-meeting' &&
+			(payload.kind !== 'n8n_chat' ||
+				payload.hidden !== true ||
+				!payload.departmentMeetingInvocation ||
+				payload.departmentMeetingInvocation.projectId !== input.projectId ||
+				payload.departmentMeetingInvocation.actorId !== payload.userId ||
+				payload.departmentMeetingInvocation.executorId !== input.agentId ||
+				payload.departmentMeetingInvocation.requestKey !== payload.messageId ||
+				payload.departmentMeetingInvocation.bindingVersion < 1 ||
+				payload.departmentMeetingInvocation.toolPolicy.mode !== 'supplied-material-only' ||
+				payload.attachments?.length ||
+				payload.departmentWorkflowIds?.length ||
+				payload.departmentWorkflowCapabilities?.length)
+		) {
+			throw new BadRequestError(
+				'Meeting queue messages require a hidden, project-bound invocation.',
+			);
+		}
+		if (
+			input.source === 'ai-department-consultation' &&
+			(payload.kind !== 'n8n_chat' ||
+				payload.hidden !== true ||
+				!payload.departmentConsultationInvocation ||
+				payload.departmentConsultationInvocation.projectId !== input.projectId ||
+				payload.departmentConsultationInvocation.actorId !== payload.userId ||
+				payload.departmentConsultationInvocation.executorId !== input.agentId ||
+				payload.departmentConsultationInvocation.commandKey !== payload.messageId ||
+				payload.departmentConsultationInvocation.bindingVersion < 1 ||
+				payload.departmentConsultationInvocation.toolPolicy.mode !== 'none' ||
+				!payload.departmentConsultationInvocation.inputText ||
+				payload.departmentConsultationInvocation.inputText.length > 24_000 ||
+				payload.attachments?.length ||
+				payload.departmentWorkflowIds?.length ||
+				payload.departmentWorkflowCapabilities?.length)
+		) {
+			throw new BadRequestError(
+				'Consultation queue messages require a hidden, project-bound invocation.',
+			);
+		}
+		const departmentInputHash =
+			(input.source === 'ai-department' ||
+				input.source === 'ai-department-meeting' ||
+				input.source === 'ai-department-consultation') &&
+			payload.kind === 'n8n_chat'
+				? createHash('sha256')
+						.update(
+							JSON.stringify({
+								message: payload.message,
+								resourceId: payload.resourceId,
+								attachments: payload.attachments ?? [],
+								workflowIds: payload.departmentWorkflowIds ?? [],
+								workflowCapabilities: payload.departmentWorkflowCapabilities ?? [],
+								meetingInvocation: payload.departmentMeetingInvocation ?? null,
+								consultationInvocation: payload.departmentConsultationInvocation ?? null,
+							}),
+						)
+						.digest('hex')
+				: undefined;
 
 		// Only the system kind reaches a system agent. Project lookups never return instance agents.
 		const agent =
@@ -126,6 +212,7 @@ export class AgentMessageQueueService {
 					payload,
 					ctx,
 					messageId,
+					departmentInputHash,
 				);
 				// Register delivery before another main can see the committed item.
 				onInserted?.(inserted.id);
@@ -134,6 +221,12 @@ export class AgentMessageQueueService {
 		} catch (error) {
 			// A duplicate must roll back session and thread creation before it returns.
 			if (error instanceof AgentMessageIdConflictError && error.messageId === messageId) {
+				if (departmentInputHash) {
+					const existingOrigin = await this.messages.findOriginById(error.messageId);
+					if (existingOrigin?.departmentInputHash !== departmentInputHash) {
+						throw new ConflictError('Dispatch key was already used for different input.');
+					}
+				}
 				return { status: 'duplicate' };
 			}
 			throw error;
@@ -147,12 +240,46 @@ export class AgentMessageQueueService {
 		return await this.repository.findByMessageId(messageId);
 	}
 
+	async findDepartmentMeetingDispatch(input: {
+		executorId: string;
+		projectId: string;
+		threadId: string;
+		request: DepartmentMeetingInvocationRequest;
+	}) {
+		const payload = meetingQueuePayload(input.request);
+		const messageId = queuedMessageId(input.executorId, input.threadId, payload);
+		if (!messageId) return null;
+		const queued = await this.repository.findByMessageId(messageId);
+		if (
+			!queued ||
+			queued.thread.projectId !== input.projectId ||
+			queued.thread.agentId !== input.executorId ||
+			queued.thread.id !== input.threadId ||
+			queued.payload.kind !== 'n8n_chat' ||
+			queued.payload.departmentMeetingInvocation?.expectedInputHash !==
+				input.request.expectedInputHash ||
+			JSON.stringify(queued.payload.departmentMeetingInvocation) !== JSON.stringify(input.request)
+		) {
+			return null;
+		}
+		return queued;
+	}
+
+	departmentMeetingMessageId(
+		executorId: string,
+		threadId: string,
+		request: DepartmentMeetingInvocationRequest,
+	): string | undefined {
+		return queuedMessageId(executorId, threadId, meetingQueuePayload(request));
+	}
+
 	private async enqueueMessage(
 		threadId: string,
 		source: string,
 		payload: AgentQueuedMessage,
 		ctx: OperationContext,
 		messageId?: string,
+		departmentInputHash?: string,
 	): Promise<AgentMessageQueue> {
 		const { message, resourceId, attachments = [], ...dispatch } = payload;
 		const [content] = buildInboundUserMessage(message, attachments);
@@ -189,14 +316,99 @@ export class AgentMessageQueueService {
 			queueDispatch = {
 				kind: dispatch.kind,
 				...(dispatch.options ? { options: dispatch.options } : {}),
+				...(dispatch.departmentWorkflowIds
+					? { departmentWorkflowIds: dispatch.departmentWorkflowIds }
+					: {}),
+				...(dispatch.departmentWorkflowCapabilities
+					? { departmentWorkflowCapabilities: dispatch.departmentWorkflowCapabilities }
+					: {}),
+				...(dispatch.departmentMeetingInvocation
+					? { departmentMeetingInvocation: dispatch.departmentMeetingInvocation }
+					: {}),
+				...(dispatch.departmentConsultationInvocation
+					? { departmentConsultationInvocation: dispatch.departmentConsultationInvocation }
+					: {}),
 			};
-			if (dispatch.hidden) origin = { source, hidden: true };
+			if (dispatch.hidden)
+				origin = {
+					source,
+					hidden: true,
+					...(departmentInputHash ? { departmentInputHash } : {}),
+				};
 		}
 		const input = await this.messages.createInput(
 			{ id: messageId, threadId, resourceId, content, modelContent, author, origin },
 			ctx,
 		);
 		return await this.repository.enqueue(threadId, input.id, queueDispatch, ctx);
+	}
+
+	/** Queue one hidden meeting call on a dedicated Agent thread. */
+	async enqueueDepartmentMeeting(input: {
+		executorId: string;
+		projectId: string;
+		threadId: string;
+		request: DepartmentMeetingInvocationRequest;
+	}): Promise<{ status: 'accepted'; item: AgentMessageQueue } | { status: 'duplicate' }> {
+		return await this.enqueue({
+			agentId: input.executorId,
+			projectId: input.projectId,
+			threadId: input.threadId,
+			sessionMode: 'new',
+			source: 'ai-department-meeting',
+			payload: meetingQueuePayload(input.request),
+		});
+	}
+
+	async findDepartmentConsultationDispatch(input: {
+		executorId: string;
+		projectId: string;
+		threadId: string;
+		request: DepartmentConsultationInvocationRequest;
+	}) {
+		const payload = consultationQueuePayload(input.request);
+		const messageId = queuedMessageId(input.executorId, input.threadId, payload);
+		if (!messageId) return null;
+		const queued = await this.repository.findByMessageId(messageId);
+		if (
+			!queued ||
+			queued.thread.projectId !== input.projectId ||
+			queued.thread.agentId !== input.executorId ||
+			queued.thread.id !== input.threadId ||
+			queued.payload.kind !== 'n8n_chat' ||
+			queued.payload.departmentConsultationInvocation?.expectedInputHash !==
+				input.request.expectedInputHash ||
+			JSON.stringify(queued.payload.departmentConsultationInvocation) !==
+				JSON.stringify(input.request)
+		) {
+			return null;
+		}
+		return queued;
+	}
+
+	departmentConsultationMessageId(
+		executorId: string,
+		threadId: string,
+		request: DepartmentConsultationInvocationRequest,
+	): string | undefined {
+		return queuedMessageId(executorId, threadId, consultationQueuePayload(request));
+	}
+
+	/** Queue one hidden help consultation on a dedicated Agent thread. */
+	async enqueueDepartmentConsultation(input: {
+		executorId: string;
+		projectId: string;
+		threadId: string;
+		request: DepartmentConsultationInvocationRequest;
+	}): Promise<{ status: 'accepted'; item: AgentMessageQueue } | { status: 'duplicate' }> {
+		return await this.enqueue({
+			agentId: input.executorId,
+			projectId: input.projectId,
+			threadId: input.threadId,
+			sessionMode: 'new',
+			source: 'ai-department-consultation',
+			payload: consultationQueuePayload(input.request),
+		});
 	}
 
 	/** Whether a message waits in the thread queue, hidden machine turns included. */
@@ -225,6 +437,53 @@ export class AgentMessageQueueService {
 			}
 			return {
 				executionIds: running.map(({ id }) => id),
+				queueIds: pending.map(({ id }) => id),
+				attachmentIds,
+			};
+		});
+		this.updates.notifyQueueUpdated(threadId);
+		return result;
+	}
+
+	async prepareDepartmentStop(
+		threadId: string,
+		ownerExecutionRef: string,
+		source:
+			| 'ai-department'
+			| 'ai-department-meeting'
+			| 'ai-department-consultation' = 'ai-department',
+	) {
+		const result = await this.txRunner.run({}, async (ctx) => {
+			const thread = await this.threadRepository.lockById(threadId, ctx);
+			if (!thread) throw new NotFoundError('Session not found');
+			const running = await this.executionRepository.findByInputMessageId(ownerExecutionRef, ctx);
+			const queueItem = await this.repository.findDepartmentStopTarget(ownerExecutionRef, ctx);
+			if (
+				(queueItem && queueItem.threadId !== threadId) ||
+				(running && (running.threadId !== threadId || running.status !== 'running'))
+			) {
+				return { executionIds: [], queueIds: [], attachmentIds: [] };
+			}
+			if (!running && (!queueItem || queueItem.executionId !== null)) {
+				return { executionIds: [], queueIds: [], attachmentIds: [] };
+			}
+			if (
+				queueItem &&
+				(queueItem.message.origin?.source !== source || queueItem.message.origin.hidden !== true)
+			) {
+				return { executionIds: [], queueIds: [], attachmentIds: [] };
+			}
+			const pending = queueItem && queueItem.executionId === null ? [queueItem] : [];
+			const attachmentIds: string[] = [];
+			for (const item of pending) {
+				attachmentIds.push(
+					...readInboundUserMessage(item.message.content).attachments.map(({ id }) => id),
+				);
+				await this.messages.clearPendingInput(item.messageId, ctx);
+				await this.repository.removePending(threadId, item.id, ctx);
+			}
+			return {
+				executionIds: running ? [running.id] : [],
 				queueIds: pending.map(({ id }) => id),
 				attachmentIds,
 			};

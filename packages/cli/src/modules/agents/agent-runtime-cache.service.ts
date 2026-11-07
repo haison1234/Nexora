@@ -1,4 +1,5 @@
 import type { Agent as RuntimeAgent } from '@n8n/agents';
+import type { AiDepartmentWorkflowCapabilitySnapshot } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
 import { Time } from '@n8n/constants';
 import type { User } from '@n8n/db';
@@ -45,6 +46,9 @@ export interface GetRuntimeParams {
 	sandboxPrincipalHash?: AgentSandboxPrincipalHash;
 	/** Disable background-job tools and wake hints for task-triggered runtimes. */
 	allowBackgroundTasks?: boolean;
+	/** Workflow ids pinned to one department attempt. */
+	departmentWorkflowIds?: string[];
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 	attributionUserId?: string;
 	/**
 	 * Build for the in-app preview chat, which gets an extra instruction saying
@@ -52,6 +56,10 @@ export interface GetRuntimeParams {
 	 * every other surface, so it is part of the cache key.
 	 */
 	previewChat?: boolean;
+	/** Build an uncached, capability-free runtime for one meeting invocation. */
+	departmentMeeting?: boolean;
+	/** Build an uncached, capability-free runtime for one help consultation. */
+	departmentConsultation?: boolean;
 }
 
 /**
@@ -129,12 +137,23 @@ export class AgentRuntimeCacheService {
 	private computeRuntimeCacheKey(params: GetRuntimeParams): string {
 		const sandboxEnabled = this.agentSandboxRuntimeService.isEnabled();
 		const parts = [params.agentId, params.usePublishedVersion ? 'published' : 'draft'];
+		if (params.departmentMeeting) parts.push('department-meeting');
+		if (params.departmentConsultation) parts.push('department-consultation');
 		// ponytail: a whole second runtime per agent just to carry one extra
 		// instruction paragraph. Move to a per-run instruction override if
 		// runtime count becomes a problem — `@n8n/agents` has no such option yet.
 		if (params.previewChat) parts.push('preview');
 		if (params.integrationType) parts.push(params.integrationType);
 		if (params.allowBackgroundTasks === false) parts.push('no-background-tasks');
+		if (params.departmentWorkflowIds !== undefined) {
+			parts.push(`department-workflows:${[...params.departmentWorkflowIds].sort().join(',')}`);
+		}
+		if (params.departmentWorkflowCapabilities !== undefined) {
+			const revisions = params.departmentWorkflowCapabilities
+				.map(({ id, version }) => `${id}@${version}`)
+				.sort();
+			parts.push(`department-capability-revisions:${revisions.join(',')}`);
+		}
 		if (params.attributionUserId) parts.push(`attribution:${params.attributionUserId}`);
 		// Per-user runtimes have node/workflow tools filtered by that user's
 		// access — keying by user id keeps them from colliding with each other
@@ -235,6 +254,10 @@ export class AgentRuntimeCacheService {
 	 * Callers must release the lease in a `finally` block.
 	 */
 	async getRuntime(params: GetRuntimeParams): Promise<AgentRuntime> {
+		if (params.departmentMeeting || params.departmentConsultation) {
+			const runtime = await this.reconstructRuntime(params);
+			return this.acquireRuntimeLease(runtime);
+		}
 		if (this.agentSandboxRuntimeService.isEnabled() && !params.sandboxPrincipalHash) {
 			throw new UserError(
 				'Agent workspace scope is missing and the runtime cannot be reconstructed',
@@ -312,7 +335,11 @@ export class AgentRuntimeCacheService {
 			user,
 			sandboxPrincipalHash,
 			allowBackgroundTasks,
+			departmentWorkflowIds,
+			departmentWorkflowCapabilities,
 			previewChat,
+			departmentMeeting,
+			departmentConsultation,
 			attributionUserId,
 		} = params;
 
@@ -351,7 +378,15 @@ export class AgentRuntimeCacheService {
 			undefined,
 			usePublishedVersion ? 'integrated' : 'manual',
 			sandboxPrincipalHash,
-			{ previewChat, allowBackgroundTasks, attributionUserId },
+			{
+				previewChat,
+				allowBackgroundTasks,
+				attributionUserId,
+				departmentWorkflowIds,
+				departmentWorkflowCapabilities,
+				departmentMeeting,
+				departmentConsultation,
+			},
 		);
 		const {
 			agent: agentInstance,

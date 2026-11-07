@@ -21,7 +21,7 @@ CREATE TABLE "ai_department_work_activity" ("id" varchar(36) PRIMARY KEY NOT NUL
 | body | TEXT |  | true |  |  |  |
 | createdAt | datetime(3) |  | false |  |  |  |
 | departmentId | varchar(36) |  | false |  |  |  |
-| id | varchar(36) |  | false |  |  |  |
+| id | varchar(36) |  | false | [ai_department_work_help_response](ai_department_work_help_response.md) |  |  |
 | kind | varchar(32) |  | false |  |  |  |
 | projectId | varchar(36) |  | false |  |  |  |
 | workId | varchar(36) |  | false |  | [ai_department_work_item](ai_department_work_item.md) |  |
@@ -40,6 +40,7 @@ CREATE TABLE "ai_department_work_activity" ("id" varchar(36) PRIMARY KEY NOT NUL
 
 | Name | Definition |
 | ---- | ---------- |
+| IDX_ai_department_work_activity_projectId_departmentId_createdAt | CREATE INDEX "IDX_ai_department_work_activity_projectId_departmentId_createdAt" ON "ai_department_work_activity" ("projectId", "departmentId", "createdAt")  |
 | IDX_ai_department_work_activity_projectId_workId_attemptId_kind | CREATE INDEX "IDX_ai_department_work_activity_projectId_workId_attemptId_kind" ON "ai_department_work_activity" ("projectId", "workId", "attemptId", "kind")  |
 | IDX_ai_department_work_activity_projectId_workId_workVersion | CREATE UNIQUE INDEX "IDX_ai_department_work_activity_projectId_workId_workVersion" ON "ai_department_work_activity" ("projectId", "workId", "workVersion")  |
 | sqlite_autoindex_ai_department_work_activity_1 | PRIMARY KEY (id) |
@@ -49,6 +50,7 @@ CREATE TABLE "ai_department_work_activity" ("id" varchar(36) PRIMARY KEY NOT NUL
 ```mermaid
 erDiagram
 
+"ai_department_work_help_response" }o--|| "ai_department_work_activity" : "FOREIGN KEY (activityId) REFERENCES ai_department_work_activity (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "ai_department_work_activity" }o--|| "ai_department_work_item" : "FOREIGN KEY (workId) REFERENCES ai_department_work_item (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 
 "ai_department_work_activity" {
@@ -64,10 +66,29 @@ erDiagram
   varchar_36_ workId FK
   INTEGER workVersion
 }
+"ai_department_work_help_response" {
+  varchar_36_ activityId FK
+  TEXT answer
+  varchar_64_ answerHash
+  datetime_3_ createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id PK
+  varchar_128_ ownerInvocationRef
+  INTEGER ownerSequence
+  varchar_36_ projectId FK
+  varchar_16_ responderKind
+  varchar_36_ responderMemberId FK
+  varchar responderUserId FK
+  varchar_36_ sourceAttemptId FK
+  varchar_36_ workId FK
+}
 "ai_department_work_item" {
+  varchar_36_ assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   datetime_3_ createdAt
   varchar_36_ currentAttemptId FK
+  INTEGER currentReviewStageIndex
   varchar_36_ departmentId FK
   datetime_3_ dueAt
   varchar_36_ goalId FK
@@ -76,6 +97,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  TEXT reviewStagesJson
   varchar_24_ state
   datetime_3_ updatedAt
   INTEGER version

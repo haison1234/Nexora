@@ -2,6 +2,7 @@ import { AGENT_CHAT_ERROR_CODES, type AgentSseEvent } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
 import { UserRepository, type User } from '@n8n/db';
 import { OnShutdown } from '@n8n/decorators';
+import { createHash } from 'node:crypto';
 import { Service } from '@n8n/di';
 import { OperationalError, UnexpectedError, UserError } from 'n8n-workflow';
 
@@ -20,6 +21,13 @@ import type { AgentExecutionThread } from './entities/agent-execution-thread.ent
 import type { AgentChatBridge } from './integrations/agent-chat-bridge';
 import { ChatIntegrationService } from './integrations/chat-integration.service';
 import { AgentMessageQueueRepository } from './repositories/agent-message-queue.repository';
+import { AgentDepartmentMeetingInvocationRepository } from './repositories/agent-department-meeting-invocation.repository';
+import { hashDepartmentMeetingInvocationRequest } from './agent-department-meeting-invocation.contracts';
+import { AgentDepartmentConsultationInvocationRepository } from './repositories/agent-department-consultation-invocation.repository';
+import {
+	DepartmentConsultationBindingVerifierProxy,
+	hashDepartmentConsultationRequest,
+} from './agent-department-consultation.contracts';
 import { canUseSystemAgent } from './system-agents/system-agent-access';
 import { SystemAgentExecutionService } from './system-agents/system-agent-execution.service';
 import { SystemAgentRegistry } from './system-agents/system-agent-registry';
@@ -46,6 +54,9 @@ export class AgentMessageQueueConsumer {
 		private readonly logger: Logger,
 		private readonly systemAgents: SystemAgentRegistry,
 		private readonly systemAgentExecution: SystemAgentExecutionService,
+		private readonly invocations: AgentDepartmentMeetingInvocationRepository,
+		private readonly consultations: AgentDepartmentConsultationInvocationRepository,
+		private readonly consultationBindings: DepartmentConsultationBindingVerifierProxy,
 	) {}
 
 	start(): void {
@@ -107,6 +118,63 @@ export class AgentMessageQueueConsumer {
 
 				const claimed = await this.queue.claimNext(threadId, async (item, thread, ctx) => {
 					if (this.stopped) return false;
+					if (item.message.origin?.source === 'ai-department-meeting') {
+						if (item.payload.kind !== 'n8n_chat' || !item.payload.departmentMeetingInvocation) {
+							throw new UnexpectedError('Meeting queue item has no invocation payload');
+						}
+						if (thread.agentId !== item.payload.departmentMeetingInvocation.executorId) {
+							throw new UnexpectedError('Meeting queue item executor does not match its thread');
+						}
+						const user = await this.userRepository.findByIdWithRole(
+							item.payload.departmentMeetingInvocation.actorId,
+						);
+						if (
+							!user ||
+							user.disabled ||
+							!(await userHasScopes(user, ['agent:execute'], false, {
+								projectId: thread.projectId,
+							}))
+						)
+							return false;
+						return !this.stopped;
+					}
+					if (item.message.origin?.source === 'ai-department-consultation') {
+						if (
+							item.payload.kind !== 'n8n_chat' ||
+							!item.payload.departmentConsultationInvocation
+						) {
+							throw new UnexpectedError('Consultation queue item has no invocation payload');
+						}
+						if (thread.agentId !== item.payload.departmentConsultationInvocation.executorId) {
+							throw new UnexpectedError(
+								'Consultation queue item executor does not match its thread',
+							);
+						}
+						const request = item.payload.departmentConsultationInvocation;
+						if (
+							!(await this.consultationBindings.isCurrentBinding({
+								projectId: request.projectId,
+								departmentId: request.departmentId,
+								memberId: request.recipientMemberId,
+								executorId: request.executorId,
+								bindingVersion: request.bindingVersion,
+							}))
+						) {
+							return false;
+						}
+						const user = await this.userRepository.findByIdWithRole(
+							item.payload.departmentConsultationInvocation.actorId,
+						);
+						if (
+							!user ||
+							user.disabled ||
+							!(await userHasScopes(user, ['agent:execute'], false, {
+								projectId: thread.projectId,
+							}))
+						)
+							return false;
+						return !this.stopped;
+					}
 					if (item.payload.kind !== 'integration') return true;
 
 					const source = item.message.origin?.source;
@@ -183,6 +251,22 @@ export class AgentMessageQueueConsumer {
 		const sender = surface && this.previewStreams.createSender(item.id);
 
 		try {
+			if (
+				item.message.origin?.source === 'ai-department-meeting' &&
+				payload.kind === 'n8n_chat' &&
+				payload.departmentMeetingInvocation
+			) {
+				await this.consumeDepartmentMeeting(claim, signal);
+				return;
+			}
+			if (
+				item.message.origin?.source === 'ai-department-consultation' &&
+				payload.kind === 'n8n_chat' &&
+				payload.departmentConsultationInvocation
+			) {
+				await this.consumeDepartmentConsultation(claim, signal);
+				return;
+			}
 			if (surface && sender) {
 				const user = await this.getThreadOwner(thread, surface);
 				sender.send({
@@ -226,6 +310,303 @@ export class AgentMessageQueueConsumer {
 			await sender?.close();
 			await this.queue.settle(thread.id, admission.executionId);
 		}
+	}
+
+	private async consumeDepartmentMeeting(
+		claim: ClaimedAgentMessage,
+		signal: AbortSignal,
+	): Promise<void> {
+		const { thread, admission, payload } = claim;
+		if (payload.kind !== 'n8n_chat' || !payload.departmentMeetingInvocation) {
+			throw new UnexpectedError('Meeting queue item has no invocation payload');
+		}
+		const request = payload.departmentMeetingInvocation;
+		const { expectedInputHash, ...requestIdentity } = request;
+		if (
+			request.projectId !== thread.projectId ||
+			request.executorId !== thread.agentId ||
+			request.actorId !== thread.ownerId ||
+			hashDepartmentMeetingInvocationRequest(requestIdentity) !== expectedInputHash ||
+			request.toolPolicy.mode !== 'supplied-material-only' ||
+			request.inputText.length === 0 ||
+			request.inputText.length > 24_000 ||
+			request.maxOutputChars < 1 ||
+			request.maxOutputChars > 4_000 ||
+			request.maxOutputTokens < 1 ||
+			request.maxOutputTokens > 1_000
+		) {
+			throw new UnexpectedError('Meeting invocation failed owner validation');
+		}
+		const user = await this.userRepository.findByIdWithRole(request.actorId);
+		if (
+			!user ||
+			user.disabled ||
+			!(await userHasScopes(user, ['agent:execute'], false, { projectId: thread.projectId }))
+		) {
+			throw new UserError('Meeting execution is no longer authorized');
+		}
+		const current = await this.invocations.findByInvocationId(
+			thread.projectId,
+			request.invocationId,
+		);
+		if (
+			!current ||
+			current.threadId !== thread.id ||
+			current.inputHash !== request.expectedInputHash ||
+			current.requestKey !== request.requestKey ||
+			current.inputText !== request.inputText
+		) {
+			throw new UnexpectedError('Meeting invocation receipt does not match the queue item');
+		}
+		if (
+			await this.invocations.isCancelled({
+				projectId: request.projectId,
+				invocationId: request.invocationId,
+				requestKey: request.requestKey,
+				inputHash: request.expectedInputHash,
+			})
+		) {
+			await this.invocations.markTerminal({
+				projectId: request.projectId,
+				invocationId: request.invocationId,
+				outcome: 'cancelled',
+				safeErrorCode: 'cancelled_before_execution',
+			});
+			return;
+		}
+		const started = await this.invocations.markRunning(request.projectId, request.invocationId);
+		if (started.affected !== 1) {
+			throw new OperationalError('Meeting invocation is stopping before execution startup');
+		}
+		let output = '';
+		let outputChars = 0;
+		let finishReason: string | undefined;
+		const deadline = Date.parse(request.deadlineAt);
+		const timeout = Math.max(0, deadline - Date.now());
+		const timeoutSignal = AbortSignal.timeout(timeout);
+		const turnSignal = AbortSignal.any([signal, timeoutSignal]);
+		let outcome: 'succeeded' | 'failed' | 'cancelled' = 'failed';
+		let safeErrorCode = 'model_failure';
+		try {
+			for await (const chunk of this.orchestrator.executeForDepartmentMeeting({
+				agentId: thread.agentId,
+				projectId: thread.projectId,
+				threadId: thread.id,
+				resourceId: payload.resourceId,
+				inputText: request.inputText,
+				maxOutputTokens: request.maxOutputTokens,
+				actorId: request.actorId,
+				admittedExecution: admission,
+				abortSignal: turnSignal,
+			})) {
+				if (chunk.type === 'text-delta') {
+					const remaining = request.maxOutputChars - outputChars;
+					if (remaining > 0) {
+						const accepted = Array.from(chunk.delta).slice(0, remaining);
+						output += accepted.join('');
+						outputChars += accepted.length;
+					}
+				}
+				if (chunk.type === 'finish') finishReason = chunk.finishReason;
+				if (chunk.type === 'tool-call' || chunk.type === 'tool-result') {
+					throw new UnexpectedError('Meeting runtime attempted tool execution');
+				}
+			}
+			const succeeded =
+				finishReason !== undefined &&
+				finishReason !== 'error' &&
+				finishReason !== 'cancelled' &&
+				output.trim().length > 0 &&
+				!timeoutSignal.aborted;
+			const modelCancelled = finishReason === 'cancelled';
+			outcome = succeeded
+				? 'succeeded'
+				: timeoutSignal.aborted || signal.aborted || modelCancelled
+					? 'cancelled'
+					: 'failed';
+			safeErrorCode = timeoutSignal.aborted
+				? 'deadline'
+				: signal.aborted || modelCancelled
+					? 'cancelled'
+					: 'model_failure';
+		} catch {
+			outcome = timeoutSignal.aborted || signal.aborted ? 'cancelled' : 'failed';
+			safeErrorCode = timeoutSignal.aborted
+				? 'deadline'
+				: signal.aborted
+					? 'cancelled'
+					: 'model_failure';
+		}
+		const resultText = outcome === 'succeeded' ? output.trim() : undefined;
+		await this.invocations.markTerminal({
+			projectId: request.projectId,
+			invocationId: request.invocationId,
+			outcome,
+			...(resultText
+				? { resultText, resultHash: createHash('sha256').update(resultText).digest('hex') }
+				: {}),
+			...(outcome !== 'succeeded' ? { safeErrorCode } : {}),
+		});
+		if (signal.aborted) throw signal.reason;
+	}
+
+	private async consumeDepartmentConsultation(
+		claim: ClaimedAgentMessage,
+		signal: AbortSignal,
+	): Promise<void> {
+		const { thread, admission, payload } = claim;
+		if (payload.kind !== 'n8n_chat' || !payload.departmentConsultationInvocation) {
+			throw new UnexpectedError('Consultation queue item has no invocation payload');
+		}
+		const request = payload.departmentConsultationInvocation;
+		const { expectedInputHash, inputText: _inputText, ...requestIdentity } = request;
+		if (
+			request.projectId !== thread.projectId ||
+			request.executorId !== thread.agentId ||
+			request.actorId !== thread.ownerId ||
+			hashDepartmentConsultationRequest(requestIdentity) !== expectedInputHash ||
+			request.toolPolicy.mode !== 'none' ||
+			!request.inputText ||
+			request.inputText.length > 24_000 ||
+			request.maxOutputChars < 1 ||
+			request.maxOutputChars > 4_000 ||
+			request.maxOutputTokens < 1 ||
+			request.maxOutputTokens > 1_000
+		) {
+			throw new UnexpectedError('Consultation invocation failed owner validation');
+		}
+		const user = await this.userRepository.findByIdWithRole(request.actorId);
+		if (
+			!user ||
+			user.disabled ||
+			!(await userHasScopes(user, ['agent:execute'], false, { projectId: thread.projectId }))
+		) {
+			throw new UserError('Consultation execution is no longer authorized');
+		}
+		const current = await this.consultations.findByInvocationId(
+			thread.projectId,
+			request.invocationId,
+		);
+		if (
+			!current ||
+			current.threadId !== thread.id ||
+			current.helpRequestId !== request.helpRequestId ||
+			current.inputHash !== request.expectedInputHash ||
+			current.commandKey !== request.commandKey ||
+			current.contextHash !== request.contextHash ||
+			current.inputText !== request.inputText
+		) {
+			throw new UnexpectedError('Consultation invocation receipt does not match the queue item');
+		}
+		if (
+			!(await this.consultationBindings.isCurrentBinding({
+				projectId: request.projectId,
+				departmentId: request.departmentId,
+				memberId: request.recipientMemberId,
+				executorId: request.executorId,
+				bindingVersion: request.bindingVersion,
+			}))
+		) {
+			await this.consultations.markTerminal({
+				projectId: request.projectId,
+				invocationId: request.invocationId,
+				outcome: 'cancelled',
+				safeErrorCode: 'binding_changed',
+			});
+			return;
+		}
+		if (
+			await this.consultations.isCancelled({
+				projectId: request.projectId,
+				invocationId: request.invocationId,
+				commandKey: request.commandKey,
+				inputHash: request.expectedInputHash,
+			})
+		) {
+			await this.consultations.markTerminal({
+				projectId: request.projectId,
+				invocationId: request.invocationId,
+				outcome: 'cancelled',
+				safeErrorCode: 'cancelled_before_execution',
+			});
+			return;
+		}
+		const started = await this.consultations.markRunning(request.projectId, request.invocationId);
+		if (started.affected !== 1) {
+			throw new OperationalError('Consultation is stopping before execution startup');
+		}
+		let output = '';
+		let outputChars = 0;
+		let finishReason: string | undefined;
+		const deadline = Date.parse(request.deadlineAt);
+		const timeoutSignal = AbortSignal.timeout(Math.max(0, deadline - Date.now()));
+		const turnSignal = AbortSignal.any([signal, timeoutSignal]);
+		let outcome: 'succeeded' | 'failed' | 'cancelled' = 'failed';
+		let safeErrorCode = 'model_failure';
+		try {
+			for await (const chunk of this.orchestrator.executeForDepartmentConsultation({
+				agentId: thread.agentId,
+				projectId: thread.projectId,
+				threadId: thread.id,
+				resourceId: payload.resourceId,
+				inputText: request.inputText,
+				maxOutputTokens: request.maxOutputTokens,
+				actorId: request.actorId,
+				admittedExecution: admission,
+				abortSignal: turnSignal,
+			})) {
+				if (chunk.type === 'text-delta') {
+					const remaining = request.maxOutputChars - outputChars;
+					if (remaining > 0) {
+						const accepted = Array.from(chunk.delta).slice(0, remaining);
+						output += accepted.join('');
+						outputChars += accepted.length;
+					}
+				}
+				if (chunk.type === 'finish') finishReason = chunk.finishReason;
+				if (chunk.type === 'tool-call' || chunk.type === 'tool-result') {
+					throw new UnexpectedError('Consultation runtime attempted tool execution');
+				}
+			}
+			const succeeded =
+				finishReason !== undefined &&
+				finishReason !== 'error' &&
+				finishReason !== 'cancelled' &&
+				output.trim().length > 0 &&
+				!timeoutSignal.aborted;
+			const modelCancelled = finishReason === 'cancelled';
+			outcome = succeeded
+				? 'succeeded'
+				: timeoutSignal.aborted || signal.aborted || modelCancelled
+					? 'cancelled'
+					: 'failed';
+			safeErrorCode = timeoutSignal.aborted
+				? 'deadline_exceeded'
+				: signal.aborted || modelCancelled
+					? 'stopped'
+					: succeeded
+						? ''
+						: 'empty_or_failed_response';
+		} catch {
+			outcome = timeoutSignal.aborted || signal.aborted ? 'cancelled' : 'failed';
+			safeErrorCode = timeoutSignal.aborted
+				? 'deadline_exceeded'
+				: signal.aborted
+					? 'stopped'
+					: 'model_failure';
+		} finally {
+			const answer = outcome === 'succeeded' ? output : undefined;
+			await this.consultations.markTerminal({
+				projectId: request.projectId,
+				invocationId: request.invocationId,
+				outcome,
+				...(safeErrorCode ? { safeErrorCode } : {}),
+				...(answer
+					? { resultText: answer, resultHash: createHash('sha256').update(answer).digest('hex') }
+					: {}),
+			});
+		}
+		if (signal.aborted) throw signal.reason;
 	}
 
 	/**
@@ -336,6 +717,11 @@ export class AgentMessageQueueConsumer {
 			sessionMode: 'existing',
 			admittedExecution: admission,
 			departmentWork: claim.recording.source === 'ai-department',
+			...(claim.recording.source === 'ai-department' &&
+				claim.payload.kind === 'n8n_chat' && {
+					departmentWorkflowIds: claim.payload.departmentWorkflowIds ?? [],
+					departmentWorkflowCapabilities: claim.payload.departmentWorkflowCapabilities ?? [],
+				}),
 			abortSignal: signal,
 		});
 		let completed = true;

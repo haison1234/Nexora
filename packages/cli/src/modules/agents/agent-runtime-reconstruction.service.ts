@@ -24,6 +24,7 @@ import {
 	type AgentJsonMcpServerConfig,
 	type AgentJsonMemoryConfig,
 	type AgentJsonToolConfig,
+	type AiDepartmentWorkflowCapabilitySnapshot,
 	type SubAgentRunPolicy,
 	type SubAgentSource,
 	type SubAgentTaskDifficulty,
@@ -53,6 +54,8 @@ import { createAiMcpFetch, createAiProxyFetch, createWebSearchFetch } from '@/ut
 import { KnowledgeAvailabilityService } from '@/modules/knowledge/knowledge-availability.service';
 import { WorkflowRunner } from '@/workflow-runner';
 import { WorkflowFinderService } from '@/workflows/workflow-finder.service';
+
+import { DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED } from './department-workflow-invocation-gate';
 
 import { AgentChatAttachmentService } from './agent-chat-attachment.service';
 import { AgentKnowledgeMirrorService } from './agent-knowledge-mirror.service';
@@ -104,7 +107,12 @@ import { resolveUniqueSubAgents } from './utils/sub-agent-resolver';
  * row exists, so anything keyed on a real agent id (checkpoints, knowledge
  * files) and top-level extras (integrations, delegation) must stay off.
  */
-export type AgentRuntimeProfile = 'top-level' | 'sub-agent' | 'inline';
+export type AgentRuntimeProfile =
+	| 'top-level'
+	| 'sub-agent'
+	| 'inline'
+	| 'department-meeting'
+	| 'department-consultation';
 
 export interface ReconstructedAgentRuntime {
 	agent: RuntimeAgent;
@@ -140,6 +148,10 @@ export interface ReconstructAgentRuntimeParams extends AgentRuntimeAssets {
 	 * because production-classified agents can run inside a workflow execution.
 	 */
 	workflowToolExecutionMode?: WorkflowToolExecutionMode;
+	/** Workflow ids pinned to one department attempt. */
+	departmentWorkflowIds?: string[];
+	/** Approved workflow capability revisions pinned to one department attempt. */
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 	/** Delegating parent agent id for sub-agent runs; defaults to memoryOwnerAgentId for top-level. */
 	parentAgentIdForDelegation?: string;
 	/** Top-level chat/integration runtimes only. */
@@ -204,6 +216,8 @@ interface RuntimeDependencies
 	workflowToolExecutionMode: WorkflowToolExecutionMode;
 	parentAgentIdForDelegation: string;
 	backgroundTasksEnabled: boolean;
+	departmentWorkflowIds?: string[];
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 }
 
 interface ToolRunIdentity {
@@ -217,6 +231,8 @@ interface ToolRunIdentity {
 	publishedN8nChat?: boolean;
 	supportsHitl: boolean;
 	backgroundTasksEnabled: boolean;
+	departmentWorkflowIds?: string[];
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 }
 
 async function getChatIntegrationToolServices() {
@@ -337,6 +353,10 @@ export class AgentRuntimeReconstructionService {
 			allowPlanTools = true,
 			attributionUserId,
 			abortSignal,
+			departmentWorkflowIds,
+			departmentWorkflowCapabilities,
+			departmentMeeting = false,
+			departmentConsultation = false,
 		}: {
 			/** Pass false when the caller cannot resume a suspended run (workflow executions). */
 			supportsHitl?: boolean;
@@ -347,12 +367,60 @@ export class AgentRuntimeReconstructionService {
 			allowPlanTools?: boolean;
 			attributionUserId?: string;
 			abortSignal?: AbortSignal;
+			departmentWorkflowIds?: string[];
+			departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
+			/** Build a single-turn meeting runtime without inherited Agent capabilities. */
+			departmentMeeting?: boolean;
+			/** Build a single-turn consultation runtime without inherited Agent capabilities. */
+			departmentConsultation?: boolean;
 		} = {},
 	): Promise<ReconstructedAgentRuntime & { userToolAccessSnapshot?: UserToolAccessSnapshot }> {
 		if (!agentEntity.schema) {
 			throw new UserError('Agent has no JSON config.');
 		}
 		let config = toAgentDocument(agentEntity.schema, skillRefs);
+		if (departmentMeeting || departmentConsultation) {
+			const invocationKind = departmentConsultation ? 'help consultation' : 'meeting';
+			config = {
+				...config,
+				instructions: [
+					config.instructions,
+					[
+						`This is an isolated AI Department ${invocationKind} invocation.`,
+						'Use only the material supplied in this request.',
+						'Do not claim to use tools or access external data.',
+					].join('\n'),
+				]
+					.filter(Boolean)
+					.join('\n\n'),
+				memory: undefined,
+				tools: [],
+				skills: [],
+				mcpServers: [],
+				vectorStores: [],
+				providerTools: {},
+				config: {
+					reasoning: config.config?.reasoning,
+					maxIterations: 1,
+				},
+			};
+		}
+		if (
+			!departmentMeeting &&
+			!departmentConsultation &&
+			departmentWorkflowIds !== undefined &&
+			config.tools
+		) {
+			const allowedWorkflowIds = new Set(
+				DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED ? departmentWorkflowIds : [],
+			);
+			config = {
+				...config,
+				tools: config.tools.filter(
+					(tool) => tool.type !== 'workflow' || allowedWorkflowIds.has(tool.workflowId ?? ''),
+				),
+			};
+		}
 
 		// Published/integration runs have no interactive n8n user and keep
 		// today's project-scoped trust boundary. When a user is present (in-app
@@ -372,7 +440,8 @@ export class AgentRuntimeReconstructionService {
 			unavailableTools = filtered.unavailable;
 		}
 
-		let credentialIntegrations = agentEntity.integrations ?? [];
+		let credentialIntegrations =
+			departmentMeeting || departmentConsultation ? [] : (agentEntity.integrations ?? []);
 		if (user && runType === 'test') {
 			const integrations = credentialIntegrations;
 			credentialIntegrations = await raceWithAbort(
@@ -386,10 +455,13 @@ export class AgentRuntimeReconstructionService {
 		}
 
 		const { toolDescriptors, toolCodeByName } = getAgentRuntimeAssets(agentEntity, skills);
-		const subAgentDelegation = await raceWithAbort(
-			async () => await this.createSubAgentDelegationConfig(config, agentEntity.projectId),
-			abortSignal,
-		);
+		const subAgentDelegation =
+			departmentMeeting || departmentConsultation
+				? { sourcesById: {}, availableSubAgents: [] }
+				: await raceWithAbort(
+						async () => await this.createSubAgentDelegationConfig(config, agentEntity.projectId),
+						abortSignal,
+					);
 
 		const runtime = await this.reconstructRuntime({
 			config,
@@ -399,13 +471,20 @@ export class AgentRuntimeReconstructionService {
 			toolDescriptors,
 			toolCodeByName,
 			skills,
-			runtimeProfile: 'top-level',
+			runtimeProfile: departmentMeeting
+				? 'department-meeting'
+				: departmentConsultation
+					? 'department-consultation'
+					: 'top-level',
 			supportsHitl,
 			runType,
 			workflowToolExecutionMode,
+			departmentWorkflowIds,
+			departmentWorkflowCapabilities,
 			parentAgentIdForDelegation: agentEntity.id,
 			integrationType,
-			credentialIntegrations,
+			credentialIntegrations:
+				departmentMeeting || departmentConsultation ? [] : credentialIntegrations,
 			subAgentDelegation,
 			user,
 			attributionUserId,
@@ -413,8 +492,9 @@ export class AgentRuntimeReconstructionService {
 			abortSignal,
 			sandboxPrincipalHash,
 			unavailableTools,
-			allowBackgroundTasks,
-			allowPlanTools,
+			allowBackgroundTasks:
+				departmentMeeting || departmentConsultation ? false : allowBackgroundTasks,
+			allowPlanTools: departmentMeeting || departmentConsultation ? false : allowPlanTools,
 			previewChat,
 		});
 		return {
@@ -623,6 +703,17 @@ export class AgentRuntimeReconstructionService {
 		params: ReconstructAgentRuntimeParams,
 	): Promise<ReconstructedAgentRuntime> {
 		let config = params.config;
+		if (params.departmentWorkflowIds !== undefined && config.tools) {
+			config = {
+				...config,
+				tools: config.tools.filter(
+					(tool) =>
+						tool.type !== 'workflow' ||
+						(DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED &&
+							params.departmentWorkflowIds?.includes(tool.workflowId ?? '') === true),
+				),
+			};
+		}
 		let unavailableTools: UnavailableTool[] = [];
 		if (params.user && config.tools?.length) {
 			// Sub-agent runtimes are built per delegation and never cached, so the
@@ -823,6 +914,12 @@ export class AgentRuntimeReconstructionService {
 				// interactive turn to hand a receipt to. Everyone else handles waits
 				// the legacy way.
 				backgroundTasksEnabled: backgroundTasksEnabled && canResume,
+				...(options.departmentWorkflowIds !== undefined
+					? { departmentWorkflowIds: options.departmentWorkflowIds }
+					: {}),
+				...(options.departmentWorkflowCapabilities !== undefined
+					? { departmentWorkflowCapabilities: options.departmentWorkflowCapabilities }
+					: {}),
 			},
 			instrumentation,
 			unavailable,
@@ -988,6 +1085,8 @@ export class AgentRuntimeReconstructionService {
 			publishedN8nChat,
 			supportsHitl,
 			backgroundTasksEnabled,
+			departmentWorkflowIds,
+			departmentWorkflowCapabilities,
 		} = runIdentity;
 		const { resolveWorkflowTool, buildUnavailableWorkflowTool } = await import(
 			'./tools/workflow-tool-factory.js'
@@ -1009,6 +1108,8 @@ export class AgentRuntimeReconstructionService {
 			publishedN8nChat,
 			supportsHitl,
 			backgroundTasksEnabled,
+			...(departmentWorkflowIds !== undefined ? { departmentWorkflowIds } : {}),
+			...(departmentWorkflowCapabilities !== undefined ? { departmentWorkflowCapabilities } : {}),
 		};
 		try {
 			return await resolveWorkflowTool(ref, context);
@@ -1029,6 +1130,8 @@ export class AgentRuntimeReconstructionService {
 	private async injectRuntimeDependencies(params: RuntimeDependencies): Promise<void> {
 		const { agent, agentId, projectId, runtimeProfile, config, abortSignal } = params;
 		throwIfAborted(abortSignal);
+		if (runtimeProfile === 'department-meeting' || runtimeProfile === 'department-consultation')
+			return;
 		agent.nativeToolDeferral({
 			eagerToolNames: [...CORE_WORKSPACE_TOOL_NAMES, 'load_skill', 'mark_session_failed'],
 		});
@@ -1055,7 +1158,11 @@ export class AgentRuntimeReconstructionService {
 	}
 
 	private async attachWorkspaceAndKnowledge(params: RuntimeDependencies) {
-		if (params.runtimeProfile === 'inline' || !this.agentSandboxRuntimeService.isEnabled())
+		if (
+			params.runtimeProfile === 'inline' ||
+			params.runtimeProfile === 'department-meeting' ||
+			!this.agentSandboxRuntimeService.isEnabled()
+		)
 			return undefined;
 		const parentWorkspaceHandle = await this.attachWorkspace(params);
 		throwIfAborted(params.abortSignal);
@@ -1206,11 +1313,14 @@ export class AgentRuntimeReconstructionService {
 			credentialProvider,
 			runType,
 			workflowToolExecutionMode,
+			departmentWorkflowIds,
+			departmentWorkflowCapabilities,
 			subAgentDelegation,
 			user,
 			instrumentation,
 			backgroundTasksEnabled,
 		} = params;
+		const isDepartmentRuntime = params.integrationType === 'ai-department';
 		const delegationParams = {
 			agent,
 			parentAgentId: parentAgentIdForDelegation,
@@ -1218,6 +1328,8 @@ export class AgentRuntimeReconstructionService {
 			credentialProvider,
 			runType,
 			workflowToolExecutionMode,
+			...(departmentWorkflowIds !== undefined ? { departmentWorkflowIds } : {}),
+			...(departmentWorkflowCapabilities !== undefined ? { departmentWorkflowCapabilities } : {}),
 			delegation: subAgentDelegation,
 			user,
 			instrumentation,
@@ -1229,22 +1341,25 @@ export class AgentRuntimeReconstructionService {
 			const budget = config.config?.guardrails?.budget;
 			const sessionCap = budget?.enabled ? budget.sessionCostCapUsd : undefined;
 			const rootSessionCapUsd = sessionCap !== undefined && sessionCap > 0 ? sessionCap : undefined;
-			runBackgroundSubAgent = await this.attachBackgroundJobTools({
-				...delegationParams,
-				...(parentWorkspaceHandle !== undefined ? { parentWorkspaceHandle } : {}),
-				...(rootSessionCapUsd !== undefined ? { rootSessionCapUsd } : {}),
-			});
+			if (!isDepartmentRuntime)
+				runBackgroundSubAgent = await this.attachBackgroundJobTools({
+					...delegationParams,
+					...(parentWorkspaceHandle !== undefined ? { parentWorkspaceHandle } : {}),
+					...(rootSessionCapUsd !== undefined ? { rootSessionCapUsd } : {}),
+				});
 		}
 		throwIfAborted(params.abortSignal);
-		await this.attachSubAgentDelegationTool({
-			...delegationParams,
-			config,
-			parentWorkspaceHandle,
-			rootSessionId: params.rootSessionId,
-			rootSessionCapUsd: params.rootSessionCapUsd,
-			budgetForwarded: params.budgetForwarded,
-			runBackgroundSubAgent,
-		});
+		if (!isDepartmentRuntime) {
+			await this.attachSubAgentDelegationTool({
+				...delegationParams,
+				config,
+				parentWorkspaceHandle,
+				rootSessionId: params.rootSessionId,
+				rootSessionCapUsd: params.rootSessionCapUsd,
+				budgetForwarded: params.budgetForwarded,
+				runBackgroundSubAgent,
+			});
+		}
 		throwIfAborted(params.abortSignal);
 		if (params.allowPlanTools !== false && Container.get(AgentsConfig).planToolsEnabled) {
 			const { AgentPlanService } = await import('./agent-plan.service.js');
@@ -1255,13 +1370,39 @@ export class AgentRuntimeReconstructionService {
 			this.attachWriteTodosTool(agent, agentId);
 		}
 		agent.tool(createMarkSessionFailedTool());
-		if (params.integrationType === 'ai-department') {
+		if (isDepartmentRuntime) {
 			const { DepartmentWorkActionsProxy } = await import(
 				'./agent-department-execution.contracts.js'
 			);
-			const { createDepartmentWorkTool } = await import('./tools/department-work.tool.js');
+			const {
+				createDepartmentWorkClaimTool,
+				createDepartmentWorkDelegationTool,
+				createDepartmentWorkSubmitTool,
+				createDepartmentWorkTool,
+			} = await import('./tools/department-work.tool.js');
 			agent.tool(
 				createDepartmentWorkTool(Container.get(DepartmentWorkActionsProxy), projectId, agentId),
+			);
+			agent.tool(
+				createDepartmentWorkClaimTool(
+					Container.get(DepartmentWorkActionsProxy),
+					projectId,
+					agentId,
+				),
+			);
+			agent.tool(
+				createDepartmentWorkDelegationTool(
+					Container.get(DepartmentWorkActionsProxy),
+					projectId,
+					agentId,
+				),
+			);
+			agent.tool(
+				createDepartmentWorkSubmitTool(
+					Container.get(DepartmentWorkActionsProxy),
+					projectId,
+					agentId,
+				),
 			);
 		}
 
@@ -1284,6 +1425,8 @@ export class AgentRuntimeReconstructionService {
 		credentialProvider: CredentialProvider;
 		runType: AgentRunTelemetryType;
 		workflowToolExecutionMode: WorkflowToolExecutionMode;
+		departmentWorkflowIds?: string[];
+		departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 		delegation: SubAgentDelegationConfig;
 		parentWorkspaceHandle?: AgentSandboxRuntime;
 		user?: User;
@@ -1302,6 +1445,8 @@ export class AgentRuntimeReconstructionService {
 			credentialProvider,
 			runType,
 			workflowToolExecutionMode,
+			departmentWorkflowIds,
+			departmentWorkflowCapabilities,
 			delegation,
 			parentWorkspaceHandle,
 			user,
@@ -1327,6 +1472,8 @@ export class AgentRuntimeReconstructionService {
 				credentialProvider,
 				runType,
 				workflowToolExecutionMode,
+				...(departmentWorkflowIds !== undefined ? { departmentWorkflowIds } : {}),
+				...(departmentWorkflowCapabilities !== undefined ? { departmentWorkflowCapabilities } : {}),
 				...(parentWorkspaceHandle !== undefined ? { parentWorkspaceHandle } : {}),
 				user,
 				instrumentation,
@@ -1383,6 +1530,8 @@ export class AgentRuntimeReconstructionService {
 		runType: AgentRunTelemetryType;
 		workflowToolExecutionMode: WorkflowToolExecutionMode;
 		delegation: SubAgentDelegationConfig;
+		departmentWorkflowIds?: string[];
+		departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 		user?: User;
 		instrumentation?: AgentRuntimeInstrumentation;
 		parentWorkspaceHandle?: AgentSandboxRuntime;

@@ -7,6 +7,7 @@ import type { Publisher } from '@/scaling/pubsub/publisher.service';
 import type { AgentExecutionService } from '../agent-execution.service';
 import type { AgentChatExecutionService } from '../agent-chat-execution.service';
 import type { AgentChatAttachmentService } from '../agent-chat-attachment.service';
+import type { AgentExecutionRepository } from '../repositories/agent-execution.repository';
 import type { AgentMessageQueueService } from '../agent-message-queue.service';
 import type { AgentQueuedTestStreamService } from '../agent-queued-test-stream.service';
 import { AgentSessionStopService } from '../agent-session-stop.service';
@@ -22,6 +23,7 @@ describe('AgentSessionStopService', () => {
 	const chatExecutions = mock<AgentChatExecutionService>();
 	const streams = mock<AgentQueuedTestStreamService>();
 	const attachments = mock<AgentChatAttachmentService>();
+	const executionRepository = mock<AgentExecutionRepository>();
 	const service = new AgentSessionStopService(
 		executionService,
 		queue,
@@ -31,6 +33,7 @@ describe('AgentSessionStopService', () => {
 		chatExecutions,
 		streams,
 		attachments,
+		executionRepository,
 	);
 	const thread = mock<AgentExecutionThread>({
 		id: 'thread-1',

@@ -19,7 +19,7 @@ CREATE TABLE "user" ("id" varchar PRIMARY KEY, "email" varchar(255), "firstName"
 | disabled | boolean | FALSE | false |  |  |  |
 | email | varchar(255) |  | true |  |  |  |
 | firstName | varchar(32) |  | true |  |  |  |
-| id | varchar |  | true | [activity_event](activity_event.md) [agent_eval_dataset](agent_eval_dataset.md) [agent_eval_rating](agent_eval_rating.md) [agent_eval_run](agent_eval_run.md) [agent_execution_threads](agent_execution_threads.md) [agent_history](agent_history.md) [agent_publish_history](agent_publish_history.md) [ai_preference](ai_preference.md) [auth_identity](auth_identity.md) [chat_hub_agents](chat_hub_agents.md) [chat_hub_sessions](chat_hub_sessions.md) [chat_hub_tools](chat_hub_tools.md) [dynamic_credential_user_entry](dynamic_credential_user_entry.md) [evaluation_collection](evaluation_collection.md) [idempotency_key](idempotency_key.md) [instance_ai_mcp_registry_connections](instance_ai_mcp_registry_connections.md) [instance_ai_pending_confirmations](instance_ai_pending_confirmations.md) [instance_ai_thread_grants](instance_ai_thread_grants.md) [instance_ai_thread_tabs](instance_ai_thread_tabs.md) [migration_workflow_owner](migration_workflow_owner.md) [oauth_access_tokens](oauth_access_tokens.md) [oauth_authorization_codes](oauth_authorization_codes.md) [oauth_refresh_tokens](oauth_refresh_tokens.md) [oauth_user_consents](oauth_user_consents.md) [project](project.md) [project_relation](project_relation.md) [promotion_review](promotion_review.md) [promotion_run](promotion_run.md) [self_healing_configuration](self_healing_configuration.md) [self_healing_configuration_reviewer](self_healing_configuration_reviewer.md) [self_healing_investigation](self_healing_investigation.md) [self_healing_result](self_healing_result.md) [service_account_details](service_account_details.md) [skill](skill.md) [skill_source](skill_source.md) [skill_version](skill_version.md) [trusted_source_identity](trusted_source_identity.md) [user_api_keys](user_api_keys.md) [user_favorites](user_favorites.md) [workflow_builder_session](workflow_builder_session.md) [workflow_publish_history](workflow_publish_history.md) [workflow_review_activity](workflow_review_activity.md) [workflow_review_activity_comment](workflow_review_activity_comment.md) [workflow_review_request](workflow_review_request.md) [workflow_review_request_authors](workflow_review_request_authors.md) [workflow_review_request_reviewers](workflow_review_request_reviewers.md) [workflow_suggestion](workflow_suggestion.md) [workflow_suggestion_activity](workflow_suggestion_activity.md) |  |  |
+| id | varchar |  | true | [activity_event](activity_event.md) [agent_eval_dataset](agent_eval_dataset.md) [agent_eval_rating](agent_eval_rating.md) [agent_eval_run](agent_eval_run.md) [agent_execution_threads](agent_execution_threads.md) [agent_history](agent_history.md) [agent_publish_history](agent_publish_history.md) [ai_department_work_help_request](ai_department_work_help_request.md) [ai_department_work_help_response](ai_department_work_help_response.md) [ai_department_work_item](ai_department_work_item.md) [ai_preference](ai_preference.md) [auth_identity](auth_identity.md) [chat_hub_agents](chat_hub_agents.md) [chat_hub_sessions](chat_hub_sessions.md) [chat_hub_tools](chat_hub_tools.md) [dynamic_credential_user_entry](dynamic_credential_user_entry.md) [evaluation_collection](evaluation_collection.md) [idempotency_key](idempotency_key.md) [instance_ai_mcp_registry_connections](instance_ai_mcp_registry_connections.md) [instance_ai_pending_confirmations](instance_ai_pending_confirmations.md) [instance_ai_thread_grants](instance_ai_thread_grants.md) [instance_ai_thread_tabs](instance_ai_thread_tabs.md) [migration_workflow_owner](migration_workflow_owner.md) [oauth_access_tokens](oauth_access_tokens.md) [oauth_authorization_codes](oauth_authorization_codes.md) [oauth_refresh_tokens](oauth_refresh_tokens.md) [oauth_user_consents](oauth_user_consents.md) [project](project.md) [project_relation](project_relation.md) [promotion_review](promotion_review.md) [promotion_run](promotion_run.md) [self_healing_configuration](self_healing_configuration.md) [self_healing_configuration_reviewer](self_healing_configuration_reviewer.md) [self_healing_investigation](self_healing_investigation.md) [self_healing_result](self_healing_result.md) [service_account_details](service_account_details.md) [skill](skill.md) [skill_source](skill_source.md) [skill_version](skill_version.md) [trusted_source_identity](trusted_source_identity.md) [user_api_keys](user_api_keys.md) [user_favorites](user_favorites.md) [workflow_builder_session](workflow_builder_session.md) [workflow_publish_history](workflow_publish_history.md) [workflow_review_activity](workflow_review_activity.md) [workflow_review_activity_comment](workflow_review_activity_comment.md) [workflow_review_request](workflow_review_request.md) [workflow_review_request_authors](workflow_review_request_authors.md) [workflow_review_request_reviewers](workflow_review_request_reviewers.md) [workflow_suggestion](workflow_suggestion.md) [workflow_suggestion_activity](workflow_suggestion_activity.md) |  |  |
 | kind | VARCHAR(16) | 'person' | false |  |  |  |
 | lastActiveAt | date |  | true |  |  |  |
 | lastName | varchar(32) |  | true |  |  |  |
@@ -61,6 +61,10 @@ erDiagram
 "agent_execution_threads" }o--o| "user" : "FOREIGN KEY (ownerId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "agent_history" }o--o| "user" : "FOREIGN KEY (publishedById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "agent_publish_history" }o--o| "user" : "FOREIGN KEY (userId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_request" }o--o| "user" : "FOREIGN KEY (recipientUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_request" }o--o| "user" : "FOREIGN KEY (initiatingUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_help_response" }o--o| "user" : "FOREIGN KEY (responderUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
+"ai_department_work_item" }o--o| "user" : "FOREIGN KEY (assignedByUserId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_preference" }o--o| "user" : "FOREIGN KEY (createdById) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE SET NULL MATCH NONE"
 "ai_preference" }o--o| "user" : "FOREIGN KEY (userId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE CASCADE MATCH NONE"
 "auth_identity" }o--o| "user" : "FOREIGN KEY (userId) REFERENCES user (id) ON UPDATE NO ACTION ON DELETE NO ACTION MATCH NONE"
@@ -184,6 +188,7 @@ erDiagram
   varchar_36_ agentId FK
   varchar_255_ agentName
   datetime_3_ createdAt
+  INTEGER departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id PK
   varchar ownerId FK
@@ -223,6 +228,71 @@ erDiagram
   boolean isLegacy
   varchar userId FK
   varchar_36_ versionId FK
+}
+"ai_department_work_help_request" {
+  TEXT attemptedStepsJson
+  INTEGER bindingVersion
+  datetime_3_ createdAt
+  datetime_3_ deadlineAt
+  varchar_36_ departmentId FK
+  TEXT expertiseTagsJson
+  varchar_36_ id PK
+  varchar initiatingUserId FK
+  varchar_64_ inputHash
+  varchar_64_ ownerInvocationHash
+  varchar_128_ ownerReference
+  varchar_36_ projectId FK
+  TEXT question
+  TEXT reason
+  varchar_36_ recipientMemberId FK
+  varchar_36_ recipientUserId FK
+  TEXT requestChainJson
+  varchar_36_ requestId
+  varchar_36_ requesterMemberId FK
+  varchar_32_ routingState
+  varchar_36_ sourceAttemptId FK
+  varchar_24_ state
+  datetime_3_ updatedAt
+  INTEGER version
+  varchar_36_ workId FK
+}
+"ai_department_work_help_response" {
+  varchar_36_ activityId FK
+  TEXT answer
+  varchar_64_ answerHash
+  datetime_3_ createdAt
+  varchar_36_ departmentId FK
+  varchar_36_ helpRequestId FK
+  varchar_36_ id PK
+  varchar_128_ ownerInvocationRef
+  INTEGER ownerSequence
+  varchar_36_ projectId FK
+  varchar_16_ responderKind
+  varchar_36_ responderMemberId FK
+  varchar responderUserId FK
+  varchar_36_ sourceAttemptId FK
+  varchar_36_ workId FK
+}
+"ai_department_work_item" {
+  varchar_36_ assignedByUserId FK
+  varchar_36_ assigneeMemberId FK
+  datetime_3_ createdAt
+  varchar_36_ currentAttemptId FK
+  INTEGER currentReviewStageIndex
+  varchar_36_ departmentId FK
+  datetime_3_ dueAt
+  varchar_36_ goalId FK
+  varchar_36_ id PK
+  TEXT instruction
+  varchar_16_ priority
+  varchar_36_ projectId
+  varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  TEXT reviewStagesJson
+  varchar_24_ state
+  datetime_3_ updatedAt
+  INTEGER version
 }
 "ai_preference" {
   TEXT content

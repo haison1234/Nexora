@@ -382,6 +382,18 @@ The root `pnpm dev` command does not start a server. See the
 [Playwright guide](packages/quality/testing/playwright/README.md) and the
 [Codespaces guide](.devcontainer/codespaces/README.md) for details.
 
+#### Nexora AI Department local instance
+
+- Give the user one browser address only: `http://localhost:8292/home/agents`.
+- Start its Vite frontend with `N8N_PORT=5791 N8N_EDITOR_PORT=8292 pnpm --filter n8n-editor-ui dev`.
+- This Vite frontend proxies API calls to the n8n backend on port `5791`. Treat `5791` as an internal backend port, not as another user-facing link.
+- Port `5678` is a separate older n8n instance. Port `8291` is a separate Vite frontend. Do not offer either as an alternate link for this AI Department session.
+- The backend on port `5791` currently uses SQLite at `.agent-setup/owner-instance/.n8n/database.sqlite`. It contains the user's current AI Department working data. Preserve this database. Do not reset it or use it for routine tests.
+- The backend on port `5678` currently uses a separate SQLite database at `.agent-setup/local-data/.n8n/database.sqlite`. Use a dedicated test-owned database for automated tests. Never assume data moves between these databases when changing ports.
+- `N8N_USER_FOLDER` can select a different SQLite data folder before starting an instance. A database change does not copy data. Back up and migrate data explicitly.
+- Treat the `5791` database as a working copy, not production. After product acceptance, back up and migrate approved data into a dedicated production database. Keep development and test data in separate databases.
+- Recheck these port and database mappings if the local server setup changes. Keep the user-facing address unchanged unless the user asks to change it.
+
 ### Common Development Tasks
 
 When implementing features:
@@ -489,7 +501,7 @@ local feature pointer unless the user selects that feature for active work.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **n8n** (349704 symbols, 716792 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **Nexora** (354232 symbols, 727278 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -512,10 +524,10 @@ This project is indexed by GitNexus as **n8n** (349704 symbols, 716792 relations
 
 | Resource | Use for |
 |----------|---------|
-| `gitnexus://repo/n8n/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/n8n/clusters` | All functional areas |
-| `gitnexus://repo/n8n/processes` | All execution flows |
-| `gitnexus://repo/n8n/process/{name}` | Step-by-step execution trace |
+| `gitnexus://repo/Nexora/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/Nexora/clusters` | All functional areas |
+| `gitnexus://repo/Nexora/processes` | All execution flows |
+| `gitnexus://repo/Nexora/process/{name}` | Step-by-step execution trace |
 
 ## CLI
 

@@ -1,0 +1,45 @@
+/*
+ * Office theme, adapted from the MIT-licensed 3D Claude Hub Remote
+ * (revision c1e8ba18dcc594d36932ffcf822adb0136633b0e, app/src/app/globals.css).
+ */
+.office-theme {
+	--office-ink-950: #06080c;
+	--office-ink-900: #0a0e14;
+	--office-ink-850: #0e131b;
+	--office-ink-800: #121823;
+	--office-ink-700: #1a2230;
+	--office-ink-600: #263041;
+	--office-mist-100: #eef2f7;
+	--office-mist-300: #b7c1cf;
+	--office-mist-500: #7c8797;
+	--office-signal: #7cc4d6;
+	--office-ok: #6fe3a4;
+	--office-warn: #f2b46a;
+	--office-bad: #ff8a7a;
+	--office-glass-solid: rgb(14 19 27 / 0.88);
+}
+
+/* Floating glass panel. */
+.office-glass {
+	border: 1px solid rgb(183 193 207 / 0.09);
+	border-radius: 16px;
+	background: linear-gradient(180deg, rgb(22 29 41 / 0.82), rgb(12 16 23 / 0.86));
+	box-shadow:
+		inset 0 1px 0 rgb(255 255 255 / 0.05),
+		0 18px 48px -12px rgb(0 0 0 / 0.65),
+		0 2px 8px rgb(0 0 0 / 0.35);
+	color: var(--office-mist-100);
+	-webkit-backdrop-filter: blur(14px) saturate(1.15);
+	backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* Children of a glass panel read the n8n tokens, so point those at the dark palette. */
+.office-glass-tokens {
+	--background--surface: transparent;
+	--background--subtle: rgb(255 255 255 / 0.06);
+	--text-color: var(--office-mist-100);
+	--text-color--subtle: var(--office-mist-500);
+	--text-color--inverse: var(--office-ink-950);
+	--border-color: rgb(183 193 207 / 0.14);
+	--color--primary: var(--office-signal);
+}

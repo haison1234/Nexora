@@ -148,6 +148,63 @@ describe('AI Department directory API', () => {
 		);
 	});
 
+	it('normalizes bounded expertise tags on member create and update', async () => {
+		const department = await editor
+			.post(`/projects/${project.id}/ai-departments`)
+			.send({ name: `Expertise-${randomUUID()}`, requestId: randomUUID() })
+			.expect(200);
+		const membersUrl = `/projects/${project.id}/ai-departments/${department.body.data.id}/members`;
+		const created = await editor
+			.post(membersUrl)
+			.send({
+				name: 'Specialist',
+				role: 'Engineer',
+				expertiseTags: [' Data Engineering ', 'Workflow'],
+				requestId: randomUUID(),
+			})
+			.expect(200);
+		expect(created.body.data.expertiseTags).toEqual(['data engineering', 'workflow']);
+
+		const memberUrl = `${membersUrl}/${created.body.data.id}`;
+		const updated = await editor
+			.patch(memberUrl)
+			.send({
+				expertiseTags: [' Security '],
+				expectedVersion: created.body.data.version,
+				requestId: randomUUID(),
+			})
+			.expect(200);
+		expect(updated.body.data.expertiseTags).toEqual(['security']);
+
+		await editor
+			.patch(memberUrl)
+			.send({
+				expertiseTags: ['Data', ' data '],
+				expectedVersion: updated.body.data.version,
+				requestId: randomUUID(),
+			})
+			.expect(400);
+		await editor
+			.patch(memberUrl)
+			.send({
+				expertiseTags: Array.from({ length: 6 }, (_, index) => `tag-${index}`),
+				expectedVersion: updated.body.data.version,
+				requestId: randomUUID(),
+			})
+			.expect(400);
+
+		const current = await editor.get(membersUrl).expect(200);
+		expect(current.body.data).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					version: updated.body.data.version,
+					id: created.body.data.id,
+					expertiseTags: ['security'],
+				}),
+			]),
+		);
+	});
+
 	it('replays directory commands and rejects request ID reuse without changing records', async () => {
 		const departmentRequestId = randomUUID();
 		const departmentUrl = `/projects/${project.id}/ai-departments`;

@@ -13,6 +13,8 @@ export interface AgentMessageOrigin {
 	platformThreadId?: string;
 	/** Typed platform context. Names are snapshots and never define ownership or access. */
 	integration?: AgentMessageIntegrationOrigin;
+	/** Payload identity for durable AI Department queue acceptance. */
+	departmentInputHash?: string;
 }
 
 @Entity({ name: 'agents_messages' })

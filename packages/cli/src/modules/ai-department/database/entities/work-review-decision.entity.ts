@@ -19,6 +19,15 @@ export class WorkReviewDecision {
 	@Column({ type: 'varchar', length: 36 })
 	attemptId: string;
 
+	@Column({ type: 'varchar', length: 36, nullable: true })
+	reviewRoundId: string | null;
+
+	@Column({ type: 'varchar', length: 64, nullable: true })
+	stageId: string | null;
+
+	@Column({ type: 'varchar', length: 36, nullable: true })
+	resultId: string | null;
+
 	@Column({ type: 'uuid' })
 	actorId: string;
 

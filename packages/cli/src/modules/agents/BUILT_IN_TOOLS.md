@@ -180,7 +180,12 @@ Use `delegate_subagent` with `mode: "background"` to start a background sub-agen
 
 ### `department_work`
 
-- Purpose: Inspect and claim assigned work. Renew or release the claim. Report progress, blockers, and explicit business results.
+- Purpose: Read the assigned-work inbox. Inspect and claim work. Renew or release the claim. Report progress, blockers, and explicit business results. Request a handoff for coordinator authorization.
 - Attach condition: Top-level published Agent with the `ai-department` runtime integration. Ordinary chats, workflow runs, inline Agents, and delegated Agents do not receive it.
-- The handler derives the execution and attempt from host persistence. Each action verifies the accepted input message, current execution, user access, member binding, claim, and work version.
+- Inspect with `department_work`, then claim with `claim_department_work`. The claim tool takes no input and reads the current work version. A claim only reserves work. The Agent must follow the work instruction and continue until it submits a result or reports a blocker.
+- Use `department_work` without a version for progress, blockers, handoffs, and other work actions. The server reads the current version before each action.
+- Submit a structured business result with `submit_department_work`. This tool claims work when the current run has no claim. If an accepted child report is available, include it in the parent result instead of creating a duplicate child.
+- Use the separate `delegate_department_work` tool to create child work. Do not use runtime sub-agent delegation for department work. Delegation starts the parent release with `waiting_for_children`, so the Agent ends its turn after delegation succeeds.
+- The delegation tool claims work when the current run has no claim. The server reads the current work version. A title may be inferred from the child instruction when the model omits it.
+- The handler derives the execution and attempt from host persistence. Mutations use a stable command receipt and verify the current owner run, member binding, claim, and work version. An Agent handoff request does not change ownership. A coordinator authorizes the destination and stop request.
 - Source: [`tools/department-work.tool.ts`](./tools/department-work.tool.ts).

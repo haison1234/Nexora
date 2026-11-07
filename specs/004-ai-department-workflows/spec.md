@@ -3,7 +3,7 @@
 **Feature ID**: `004-ai-department-workflows`
 **Feature Branch**: Not created. The feature ID is not a branch claim.
 **Created**: 2026-11-02
-**Status**: Draft; Feature Contract v1 decisions approved on 2026-11-03. G4–G5 block workflow invocation tasks and enablement.
+**Status**: Draft; Feature Contract v1 decisions approved on 2026-11-03. G4, G5, and T010 acceptance are verified. Runtime invocation gates remain false pending explicit release enablement.
 **Input**: Let department members call selected n8n workflows as tools for assigned work.
 **Design**: [Shared interface](../AI-DEPARTMENT-DESIGN.md)
 
@@ -100,4 +100,4 @@ As an operator, I see how workflow calls contribute to an attempt.
 
 Use published compatible workflow content and pin its publication and input-schema identity. Require current `agent:execute`, `workflow:execute`, caller policy, and credential checks at dispatch. A publication change requires capability revalidation. Owner invocation keys must resolve uncertain acceptance. Workflow waiting, retries and terminal outcomes remain child states. Revoke new calls and request stop on active children after access loss.
 
-G4–G5 remain open and block workflow invocation tasks and enablement. They do not block unrelated department planning.
+G4 acceptance is verified for published workflow identity, invocation lookup, inherited-tool enforcement, production queue acceptance, and owner recovery across separate processes. G5 is verified for persisted revocation of waiting/retrying children: a fresh main process reloads the SQLite intent, runs production Department reconciliation and Agents owner stop, and a fresh worker receives the Redis stop through production `ExecutionStopService` and `JobProcessor`. The production `ManualExecutionService` and workflow engine run a test workflow node; the node observes the abort signal. T010 provider-backed quickstart acceptance is verified with one exact-version child execution, a successful owner receipt, and a submitted business result. Keep the runtime invocation gates false until release enablement. These gates do not block unrelated department planning.

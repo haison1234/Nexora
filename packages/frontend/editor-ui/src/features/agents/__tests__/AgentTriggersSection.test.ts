@@ -271,9 +271,12 @@ describe('AgentTriggersSection', () => {
 			});
 			await flushPromises();
 
-			expect(wrapper.getComponent(AgentChipButton).props('invalidReasons')).toEqual([
-				`agents.builder.validation.issue.${key}`,
-			]);
+			expect(
+				wrapper
+					.findAllComponents(AgentChipButton)
+					.find((chip) => chip.text().includes('slack'))
+					?.props('invalidReasons'),
+			).toEqual([`agents.builder.validation.issue.${key}`]);
 		},
 	);
 
@@ -491,7 +494,7 @@ describe('AgentTriggersSection', () => {
 		await wrapper.setProps({ agentUnsaved: false });
 		await flushPromises();
 
-		expect(fetchStatusSpy).toHaveBeenCalledExactlyOnceWith([]);
+		expect(fetchStatusSpy).toHaveBeenCalledExactlyOnceWith(['n8n_chat']);
 	});
 
 	describe('simpleChannelSetup', () => {
@@ -544,12 +547,12 @@ describe('AgentTriggersSection', () => {
 			expect(chip?.find('[icon="message-square"]').exists()).toBe(true);
 		});
 
-		it('hides the chip when the flag is off', async () => {
+		it('shows the chip when the flag is off', async () => {
 			n8nChatFlag.value = false;
 			const wrapper = mountSection(undefined, false, { connectedTriggers: ['n8n_chat'] });
 			await flushPromises();
 
-			expect(findChip(wrapper, 'agents.channels.n8nChat.label')).toBeUndefined();
+			expect(findChip(wrapper, 'agents.channels.n8nChat.label')).toBeTruthy();
 		});
 
 		it.each([
@@ -648,7 +651,9 @@ describe('AgentTriggersSection', () => {
 		}
 
 		const chip = (wrapper: ReturnType<typeof mountSection>) =>
-			wrapper.findComponent({ name: 'AgentChipButton' });
+			wrapper
+				.findAllComponents({ name: 'AgentChipButton' })
+				.find((item) => item.text().includes('WhatsApp'))!;
 
 		it.each([null, { state: 'connected' }, { state: 'unknown' }])(
 			'shows no icon for %j',

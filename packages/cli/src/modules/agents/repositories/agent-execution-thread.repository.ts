@@ -23,6 +23,7 @@ import { jsonParse, UserError } from 'n8n-workflow';
 import { AgentChatAttachment } from '../entities/agent-chat-attachment.entity';
 import { AgentCheckpoint } from '../entities/agent-checkpoint.entity';
 import { AgentExecution } from '../entities/agent-execution.entity';
+import { AgentDepartmentMeetingInvocation } from '../entities/agent-department-meeting-invocation.entity';
 import {
 	AgentExecutionThread,
 	type AgentThreadAccess,
@@ -91,7 +92,10 @@ interface AgentSessionDeletionRefs {
 export class AgentExecutionThreadRepository extends BaseRepository<AgentExecutionThread> {
 	constructor(dataSource: DataSource, transactionRunner: TransactionRunner) {
 		super(AgentExecutionThread, dataSource.manager, transactionRunner);
+		this.transactions = transactionRunner;
 	}
+
+	private readonly transactions: TransactionRunner;
 
 	async lockById(threadId: string, ctx: OperationContext): Promise<AgentExecutionThread | null> {
 		const manager = this.managerFor(ctx);
@@ -99,6 +103,16 @@ export class AgentExecutionThreadRepository extends BaseRepository<AgentExecutio
 			where: { id: threadId },
 			lock:
 				manager.connection.options.type === 'postgres' ? { mode: 'pessimistic_write' } : undefined,
+		});
+	}
+
+	async incrementDepartmentSnapshotSequence(threadId: string): Promise<number | null> {
+		return await this.transactions.run({}, async (ctx) => {
+			const thread = await this.lockById(threadId, ctx);
+			if (!thread) return null;
+			thread.departmentSnapshotSequence += 1;
+			await this.managerFor(ctx).save(thread);
+			return thread.departmentSnapshotSequence;
 		});
 	}
 
@@ -213,6 +227,14 @@ export class AgentExecutionThreadRepository extends BaseRepository<AgentExecutio
 				"(thread.accessScope = 'project' OR (thread.accessScope = 'user' AND thread.ownerId = :userId))",
 				{ userId },
 			);
+		const meetingThread = query
+			.subQuery()
+			.select('meetingInvocation.threadId')
+			.from(AgentDepartmentMeetingInvocation, 'meetingInvocation')
+			.where('meetingInvocation.threadId = thread.id')
+			.andWhere('meetingInvocation.projectId = thread.projectId')
+			.getQuery();
+		query.andWhere(`NOT EXISTS ${meetingThread}`);
 		this.applyListFilters(query, filters, userId, this.updatedAtExpression());
 		return await this.paginateByUpdatedAt(query, limit, cursor);
 	}

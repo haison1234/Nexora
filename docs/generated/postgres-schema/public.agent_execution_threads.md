@@ -8,8 +8,9 @@
 | agentId | varchar(36) |  | false |  | [public.agents](public.agents.md) |  |
 | agentName | varchar(255) |  | false |  |  |  |
 | createdAt | timestamp(3) with time zone | CURRENT_TIMESTAMP(3) | false |  |  |  |
+| departmentSnapshotSequence | integer | 0 | true |  |  | Durable AI Department owner snapshot sequence |
 | emoji | varchar(8) |  | true |  |  |  |
-| id | varchar(128) |  | false | [public.agent_execution](public.agent_execution.md) [public.agent_message_queue](public.agent_message_queue.md) [public.agent_plan](public.agent_plan.md) [public.agent_thread_grants](public.agent_thread_grants.md) |  |  |
+| id | varchar(128) |  | false | [public.agent_department_stop_receipt](public.agent_department_stop_receipt.md) [public.agent_execution](public.agent_execution.md) [public.agent_message_queue](public.agent_message_queue.md) [public.agent_plan](public.agent_plan.md) [public.agent_thread_grants](public.agent_thread_grants.md) |  |  |
 | ownerId | uuid |  | true |  | [public.user](public.user.md) | User who started this private session |
 | parentAgentId | varchar(36) |  | true |  |  | Saved agent id of the parent that delegated this subagent run. |
 | parentThreadId | varchar(128) |  | true |  |  | Parent session thread id that delegated this subagent run. |
@@ -64,6 +65,7 @@
 erDiagram
 
 "public.agent_execution_threads" }o--|| "public.agents" : "FOREIGN KEY (#quot;agentId#quot;) REFERENCES agents(id) ON DELETE CASCADE"
+"public.agent_department_stop_receipt" }o--|| "public.agent_execution_threads" : "FOREIGN KEY (#quot;threadId#quot;) REFERENCES agent_execution_threads(id) ON DELETE CASCADE"
 "public.agent_execution" }o--|| "public.agent_execution_threads" : "FOREIGN KEY (#quot;threadId#quot;) REFERENCES agent_execution_threads(id) ON DELETE CASCADE"
 "public.agent_message_queue" }o--|| "public.agent_execution_threads" : "FOREIGN KEY (#quot;threadId#quot;) REFERENCES agent_execution_threads(id) ON DELETE CASCADE"
 "public.agent_plan" }o--|| "public.agent_execution_threads" : "FOREIGN KEY (#quot;threadId#quot;) REFERENCES agent_execution_threads(id) ON DELETE CASCADE"
@@ -77,6 +79,7 @@ erDiagram
   varchar_36_ agentId FK
   varchar_255_ agentName
   timestamp_3__with_time_zone createdAt
+  integer departmentSnapshotSequence
   varchar_8_ emoji
   varchar_128_ id
   uuid ownerId FK
@@ -111,6 +114,20 @@ erDiagram
   json tools
   timestamp_3__with_time_zone updatedAt
   varchar_36_ versionId
+}
+"public.agent_department_stop_receipt" {
+  uuid actorId
+  varchar_36_ agentId
+  varchar_36_ commandId
+  timestamp_3__with_time_zone confirmedAt
+  timestamp_3__with_time_zone createdAt
+  varchar_36_ ownerExecutionRef
+  varchar_64_ payloadHash
+  varchar_36_ projectId
+  varchar_24_ reason
+  varchar_16_ status
+  varchar_128_ threadId FK
+  timestamp_3__with_time_zone updatedAt
 }
 "public.agent_execution" {
   boolean acceptsSteering

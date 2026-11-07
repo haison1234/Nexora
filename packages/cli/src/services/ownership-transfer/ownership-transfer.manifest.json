@@ -105,6 +105,16 @@
 			"reason": "Attempts reference executions owned by the source project and cannot be re-homed. Delete them with their work."
 		},
 		{
+			"name": "WorkHelpRequest",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-help-request.entity.ts",
+			"reason": "Help requests retain the source work, requester, and stop authority. Delete them with the source project."
+		},
+		{
+			"name": "WorkHelpResponse",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-help-response.entity.ts",
+			"reason": "Help responses are attributed history for source-project work. Keep them with the source project."
+		},
+		{
 			"name": "WorkDispatchIntent",
 			"path": "packages/cli/src/modules/ai-department/database/entities/work-dispatch-intent.entity.ts",
 			"reason": "Dispatch intents are scoped to attempts in the source project. Delete them with their attempt."
@@ -228,6 +238,136 @@
 			"name": "WorkEligibility",
 			"path": "packages/cli/src/modules/ai-department/database/entities/work-eligibility.entity.ts",
 			"reason": "Eligibility history belongs to its original project work item and member. Delete it with either parent; do not transfer execution authority."
+		},
+		{
+			"name": "WorkHandoffIntent",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-handoff-intent.entity.ts",
+			"reason": "Handoff intents record stop and reassignment authority for source-project work. Delete them with the source work item."
+		},
+		{
+			"name": "WorkReleaseIntent",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-release-intent.entity.ts",
+			"reason": "Release intents record stop authority for source-project work. Delete them with the source work item."
+		},
+		{
+			"name": "WorkflowCapability",
+			"path": "packages/cli/src/modules/ai-department/database/entities/workflow-capability.entity.ts",
+			"reason": "Workflow capabilities and their grants belong to the source project. Do not transfer execution authority to another project."
+		},
+		{
+			"name": "WorkflowCapabilityRevision",
+			"path": "packages/cli/src/modules/ai-department/database/entities/workflow-capability-revision.entity.ts",
+			"reason": "Capability revisions are an audit history for the source project. Delete them with the capability."
+		},
+		{
+			"name": "WorkflowInvocation",
+			"path": "packages/cli/src/modules/ai-department/database/entities/workflow-invocation.entity.ts",
+			"reason": "Workflow invocations reference source-project executions and authority. Do not re-home them to another project."
+		},
+		{
+			"name": "AgentDepartmentMeetingInvocation",
+			"path": "packages/cli/src/modules/agents/entities/agent-department-meeting-invocation.entity.ts",
+			"reason": "Meeting invocations reference source-project actors, threads, and execution history. Do not transfer runtime ownership."
+		},
+		{
+			"name": "AgentDepartmentStopReceipt",
+			"path": "packages/cli/src/modules/agents/entities/agent-department-stop-receipt.entity.ts",
+			"reason": "Stop receipts prove runtime state for source-project executions. Keep them with their source project."
+		},
+		{
+			"name": "AgentDepartmentWorkflowEvent",
+			"path": "packages/cli/src/modules/agents/entities/agent-department-workflow-event.entity.ts",
+			"reason": "Workflow events are execution history for the source project. Keep them with their source project."
+		},
+		{
+			"name": "AgentDepartmentWorkflowInput",
+			"path": "packages/cli/src/modules/agents/entities/agent-department-workflow-input.entity.ts",
+			"reason": "Workflow inputs are execution history for the source project. Keep them with their source project."
+		},
+		{
+			"name": "AiDepartmentMeeting",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Meeting records belong to their source department and retain its project context. Delete them with the source project."
+		},
+		{
+			"name": "AiDepartmentMeetingActionItem",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Action items are meeting history for the source project. Keep their links and decisions with that project."
+		},
+		{
+			"name": "AiDepartmentMeetingActivity",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Meeting activity is an audit history of the source project. Do not rewrite its project context."
+		},
+		{
+			"name": "AiDepartmentMeetingContext",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Meeting context references authorized source snapshots for the source project. Do not transfer those access grants."
+		},
+		{
+			"name": "AiDepartmentMeetingContribution",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Contributions are participant records for meetings in the source project. Keep them with that project."
+		},
+		{
+			"name": "AiDepartmentMeetingDecision",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Decisions are approved or proposed within the source department. Do not transfer their approval authority."
+		},
+		{
+			"name": "AiDepartmentMeetingInvocation",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Meeting invocations reference source-project actors and runtime history. Do not transfer execution ownership."
+		},
+		{
+			"name": "AiDepartmentMeetingMinutes",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Minutes are an approval history for meetings in the source project. Keep the original approver and context."
+		},
+		{
+			"name": "AiDepartmentMeetingParticipant",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Participant snapshots record the source department roster. Do not rewrite historical membership."
+		},
+		{
+			"name": "AiDepartmentMeetingSource",
+			"path": "packages/cli/src/modules/ai-department/database/entities/meeting.entity.ts",
+			"reason": "Meeting source links refer to records in the source project. Do not transfer their access context."
+		},
+		{
+			"name": "AgentDepartmentConsultationInvocation",
+			"path": "packages/cli/src/modules/agents/entities/agent-department-consultation-invocation.entity.ts",
+			"reason": "Consultation prompts and results belong to the source project and Agent runtime. Delete them with their invocation."
+		},
+		{
+			"name": "AgentDepartmentConsultationInvocationGate",
+			"path": "packages/cli/src/modules/agents/entities/agent-department-consultation-invocation-gate.entity.ts",
+			"reason": "Cancellation gates protect source-project invocations. Delete them with the invocation."
+		},
+		{
+			"name": "AgentDepartmentMeetingInvocationGate",
+			"path": "packages/cli/src/modules/agents/entities/agent-department-meeting-invocation-gate.entity.ts",
+			"reason": "Cancellation gates protect source-project meeting invocations. Delete them with the invocation."
+		},
+		{
+			"name": "SubmittedWorkResult",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-review-records.entity.ts",
+			"reason": "Submitted results are review history for source-project work. Delete them with the work item."
+		},
+		{
+			"name": "WorkReviewPolicyRevision",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-review-records.entity.ts",
+			"reason": "Review policy revisions belong to source-project work and must not move to another project."
+		},
+		{
+			"name": "WorkReviewRound",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-review-records.entity.ts",
+			"reason": "Review rounds retain the source project's work and reviewer identity. Delete them with the work item."
+		},
+		{
+			"name": "WorkReviewStageDecision",
+			"path": "packages/cli/src/modules/ai-department/database/entities/work-review-records.entity.ts",
+			"reason": "Review decisions are history for source-project work. Preserve their original project context."
 		}
 	]
 }

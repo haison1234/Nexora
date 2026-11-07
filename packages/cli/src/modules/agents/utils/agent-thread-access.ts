@@ -91,6 +91,15 @@ export function canContinueThreadInN8nChat(
 	);
 }
 
+export function canContinueDepartmentWorkThread(
+	thread: AgentExecutionThread,
+	userId: string,
+	source: string | null | undefined,
+	isSystemAgent: boolean,
+): boolean {
+	return !isSystemAgent && isOpenChatThread(thread, userId) && source === 'ai-department';
+}
+
 /** A system thread does not check the execution source, so it works before the first turn. */
 export function canContinueSystemThread(
 	thread: AgentExecutionThread,

@@ -1069,6 +1069,33 @@ describe('AgentRuntimeReconstructionService.reconstructFromResolvedSource — su
 	});
 });
 
+describe('AgentRuntimeReconstructionService — isolated department runtimes', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		builtAgent.hasCheckpointStorage.mockReturnValue(true);
+		builtAgent.tool.mockClear();
+	});
+
+	it.each(['department-meeting', 'department-consultation'] as const)(
+		'does not attach Agent tools to %s runtimes',
+		async (runtimeProfile) => {
+			await makeReconstructionService().reconstructFromResolvedSource({
+				config: { name: 'Specialist', model: 'anthropic/claude-sonnet-4-5', instructions: 'Help' },
+				memoryOwnerAgentId: 'specialist-agent-1',
+				projectId: 'project-1',
+				credentialProvider: mock<CredentialProvider>(),
+				toolDescriptors: {},
+				toolCodeByName: {},
+				skills: {},
+				runtimeProfile,
+				runType: 'production',
+			});
+
+			expect(getInjectedToolNames()).toEqual([]);
+		},
+	);
+});
+
 describe('AgentRuntimeReconstructionService — plan tools gating', () => {
 	const planToolNames = ['create_plan', 'read_plan', 'update_plan', 'close_plan'];
 	const wakeService = mock<AgentWakeService>();
@@ -1290,6 +1317,26 @@ describe('AgentRuntimeReconstructionService.reconstructFromAgentEntity — backg
 		);
 
 		expect(getInjectedToolNames()).toEqual(expect.arrayContaining(BACKGROUND_TOOL_NAMES));
+	});
+
+	it('uses durable department work instead of sub-agent delegation for AI Department runs', async () => {
+		Container.get(AgentsConfig).backgroundTasksEnabled = true;
+		const service = makeReconstructionService();
+
+		await service.reconstructFromAgentEntity(
+			storedRunSource(makeAgentEntity()),
+			mock<CredentialProvider>(),
+			'production',
+			'ai-department',
+		);
+
+		const toolNames = getInjectedToolNames();
+		expect(toolNames).toContain('department_work');
+		expect(toolNames).toContain('claim_department_work');
+		expect(toolNames).toContain('delegate_department_work');
+		expect(toolNames).toContain('submit_department_work');
+		expect(toolNames).not.toContain(DELEGATE_SUB_AGENT_TOOL_NAME);
+		expect(toolNames).not.toEqual(expect.arrayContaining(BACKGROUND_TOOL_NAMES));
 	});
 
 	function getInjectedDelegateTool() {

@@ -5,7 +5,6 @@ import AppModals from '@/app/components/app/AppModals.vue';
 import AppCommandBar from '@/app/components/app/AppCommandBar.vue';
 import AppLayout from '@/app/components/app/AppLayout.vue';
 import AppChatPanel from '@/app/components/app/AppChatPanel.vue';
-import E2ETestModeMarker from '@/app/components/app/E2ETestModeMarker.vue';
 
 import { useHistoryHelper } from '@/app/composables/useHistoryHelper';
 import { useBackendStatus } from '@/app/composables/useBackendStatus';
@@ -140,7 +139,7 @@ useExposeCssVar('--ask-assistant--floating-button--margin-bottom', askAiFloating
 
 <template>
 	<LoadingView v-if="loading" />
-	<BaseLayout v-else id="n8n-app" :class="$style.app">
+	<BaseLayout v-else id="n8n-app" :class="$style.app" :main-landmark="false">
 		<template #banners>
 			<AppBanners />
 		</template>
@@ -151,7 +150,6 @@ useExposeCssVar('--ask-assistant--floating-button--margin-bottom', askAiFloating
 		<AppCommandBar />
 		<template #overlays>
 			<div :id="CODEMIRROR_TOOLTIP_CONTAINER_ELEMENT_ID" />
-			<E2ETestModeMarker />
 			<!-- Experiment cleanup (119_surface_assistant_on_workflow_error) -->
 			<WorkflowErrorNudge />
 			<!-- EOF Experiment cleanup -->

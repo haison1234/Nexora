@@ -131,32 +131,39 @@ export class ActiveExecutions {
 			} else {
 				// Is an existing execution we want to finish so update in DB
 				executionId = existingExecution.executionId;
+				const departmentQueueRecovery =
+					this.executionsConfig.mode === 'queue' &&
+					existingExecution.expectedStatus === 'new' &&
+					typeof executionData.executionData?.resultData?.metadata
+						?.aiDepartmentWorkflowInvocationId === 'string';
 
 				if (shouldReserveCapacity) {
 					await capacityReservation.reserve({ mode, executionId });
 				}
 
-				const execution: Pick<IExecutionDb, 'id' | 'data' | 'waitTill' | 'status'> = {
-					id: executionId,
-					data: executionData.executionData!,
-					waitTill: null,
-					status: executionStatus,
-				};
+				if (!departmentQueueRecovery) {
+					const execution: Pick<IExecutionDb, 'id' | 'data' | 'waitTill' | 'status'> = {
+						id: executionId,
+						data: executionData.executionData!,
+						waitTill: null,
+						status: executionStatus,
+					};
 
-				const updateSucceeded = await this.executionPersistence.updateExistingExecution(
-					executionId,
-					execution,
-					// Only claim the execution if it is still in the status the caller expected
-					{ requireStatus: existingExecution.expectedStatus },
-				);
+					const updateSucceeded = await this.executionPersistence.updateExistingExecution(
+						executionId,
+						execution,
+						// Only claim the execution if it is still in the status the caller expected
+						{ requireStatus: existingExecution.expectedStatus },
+					);
 
-				if (!updateSucceeded) {
-					// Another process is already resuming this execution
-					throw new ExecutionAlreadyResumingError(executionId);
-				}
+					if (!updateSucceeded) {
+						// Another process is already resuming this execution
+						throw new ExecutionAlreadyResumingError(executionId);
+					}
 
-				if (existingExecution.expectedStatus === 'new') {
-					await this.executionRepository.setRunning(executionId);
+					if (existingExecution.expectedStatus === 'new') {
+						await this.executionRepository.setRunning(executionId);
+					}
 				}
 			}
 		} catch (error) {

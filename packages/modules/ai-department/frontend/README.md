@@ -50,3 +50,17 @@ SCSS goes in a scoped `<style lang="scss">` block, with tokens from
 design-system — `stylelint.config.mjs` holds this package to the same rules the
 shell uses. Route components must load lazily — see the note in
 `src/ai-department.module.ts`.
+
+## Office view and third-party notices
+
+The Office route (`/ai-department/office`) loads Three.js on demand. The dependency is pinned
+to an exact version in `package.json` (`three` and `@types/three`, MIT license). Only the
+Office renderer imports it, and only through a dynamic `import()`.
+
+The 3D scene uses procedural geometry that this module creates in code. It does not include
+any third-party model, texture, font, or source file. The `3d-claude-hub-remote` project
+(MIT) informed the idea of a robot office. No file from that project is copied here.
+
+The scene only reads the authorized department projection. It does not store state and does
+not grant any permission. A DOM roster gives the same information and actions when 3D is off,
+unsupported, or fails.

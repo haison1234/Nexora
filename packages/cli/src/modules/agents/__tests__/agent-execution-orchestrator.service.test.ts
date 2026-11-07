@@ -2443,6 +2443,42 @@ describe('AgentExecutionOrchestratorService', () => {
 		);
 	});
 
+	it('runs department work in its owner thread through the published Agent runtime', async () => {
+		const { service, agentRepository, runtimeCacheService, executionService } = makeService();
+		agentRepository.isN8nChatPublished.mockResolvedValue(true);
+		executionService.canUseProductionChatThread.mockResolvedValue(true);
+		const runtime = makeRuntime();
+		runtimeCacheService.getRuntime.mockResolvedValue(runtime);
+
+		await collect(
+			service.executeForN8nChatPublished({
+				agentId,
+				projectId,
+				user,
+				message: 'Assigned department work',
+				memory: { threadId: 'thread-1', resourceId: 'n8n-chat-production:user-1' },
+				sessionMode: 'existing',
+				departmentWork: true,
+			}),
+		);
+
+		expect(executionService.canUseProductionChatThread).toHaveBeenCalledWith(
+			'thread-1',
+			projectId,
+			agentId,
+			user.id,
+			'existing',
+			true,
+		);
+		expect(runtimeCacheService.getRuntime).toHaveBeenCalledWith(
+			expect.objectContaining({ integrationType: 'ai-department' }),
+		);
+		expect(executionService.startExecutionRecording).toHaveBeenCalledWith(
+			expect.objectContaining({ source: 'ai-department' }),
+			expect.any(Date),
+		);
+	});
+
 	it('attaches the budget guardrail saved on the published runtime', async () => {
 		const { service, agentRepository, runtimeCacheService, executionService } = makeService();
 		agentRepository.isN8nChatPublished.mockResolvedValue(true);
@@ -3982,6 +4018,69 @@ describe('AgentExecutionOrchestratorService', () => {
 
 		expect(runtimeCacheService.getRuntime).toHaveBeenCalledWith(
 			expect.objectContaining({ sandboxPrincipalHash: integrationPrincipalHash }),
+		);
+	});
+
+	it('restores Department work context when resuming an approved native tool call', async () => {
+		const { service, agentRepository, checkpointStorage, runtimeCacheService, executionService } =
+			makeService(true);
+		agentRepository.isN8nChatPublished.mockResolvedValue(true);
+		executionService.canUseProductionChatThread.mockResolvedValue(true);
+		executionService.findLatestSuspendedRun.mockResolvedValue({ source: 'ai-department' } as never);
+		const runtime = makeRuntime();
+		checkpointStorage.getStatus.mockResolvedValue({
+			status: 'active',
+			checkpoint: makeCheckpoint(
+				{},
+				{
+					threadId: 'attempt-1',
+					resourceId: 'n8n-chat-production:user-1',
+					hostMetadata: {
+						...encodeAgentSandboxHostMetadata({ projectId, principalHash: userPrincipalHash }),
+						aiDepartmentWork: true,
+					},
+				},
+			),
+		} as never);
+		runtimeCacheService.getRuntime.mockResolvedValue(runtime);
+
+		await collect(
+			service.resumeForChat({
+				agentId,
+				projectId,
+				runId: 'run-1',
+				toolCallId: 'tool-call-1',
+				resumeData: { approved: true },
+				user,
+				integrationType: N8N_CHAT_INTEGRATION_TYPE,
+				chatSurface: 'n8n-chat',
+				expectedMemory: {
+					threadId: 'attempt-1',
+					resourceId: 'n8n-chat-production:user-1',
+				},
+			}),
+		);
+
+		expect(runtime.agent.resume).toHaveBeenCalledWith(
+			'stream',
+			{ approved: true },
+			expect.objectContaining({ runId: 'run-1', toolCallId: 'tool-call-1' }),
+		);
+		expect(runtimeCacheService.getRuntime).toHaveBeenCalledWith(
+			expect.objectContaining({
+				integrationType: 'ai-department',
+				user,
+				allowBackgroundTasks: false,
+			}),
+		);
+		expect(executionService.startExecutionRecording).toHaveBeenCalledWith(
+			expect.objectContaining({
+				threadId: 'attempt-1',
+				resourceId: 'n8n-chat-production:user-1',
+				source: 'ai-department',
+				sessionMode: 'existing',
+			}),
+			expect.any(Date),
 		);
 	});
 

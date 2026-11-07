@@ -301,6 +301,16 @@ export class ExecutionRepository extends BaseRepository<ExecutionEntity> {
 		});
 	}
 
+	/** Finds the retained execution row that accepted a native idempotency key. */
+	async findExecutionIdByDeduplicationKey(deduplicationKey: string): Promise<string | null> {
+		const execution = await this.findOne({
+			select: { id: true },
+			where: { deduplicationKey },
+			withDeleted: true,
+		});
+		return execution?.id ?? null;
+	}
+
 	async findSingleExecution(
 		id: string,
 		options?: {

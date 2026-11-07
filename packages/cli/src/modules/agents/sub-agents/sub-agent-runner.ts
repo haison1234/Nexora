@@ -24,6 +24,7 @@ import {
 } from '@n8n/agents';
 import type {
 	AgentBudgetNotice,
+	AiDepartmentWorkflowCapabilitySnapshot,
 	ResolvedSubAgentSource,
 	RunnableAgentJsonConfig,
 	SubAgentSource,
@@ -88,6 +89,10 @@ export interface SubAgentRunContext {
 	runType: AgentRunTelemetryType;
 	/** Workflow execution classification inherited from the parent runtime. */
 	workflowToolExecutionMode?: WorkflowToolExecutionMode;
+	/** Workflow ids pinned to the parent's department attempt. */
+	departmentWorkflowIds?: string[];
+	/** Approved workflow capability revisions pinned to the parent's attempt. */
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
 	executionCounter?: AgentExecutionCounter;
 	/** Parent run's abort signal — cancelling the parent cancels this child. */
 	abortSignal?: AbortSignal;
@@ -348,6 +353,12 @@ export class SubAgentRunner {
 				runtimeProfile: 'sub-agent',
 				runType: context.runType,
 				workflowToolExecutionMode: context.workflowToolExecutionMode,
+				...(context.departmentWorkflowIds !== undefined
+					? { departmentWorkflowIds: context.departmentWorkflowIds }
+					: {}),
+				...(context.departmentWorkflowCapabilities !== undefined
+					? { departmentWorkflowCapabilities: context.departmentWorkflowCapabilities }
+					: {}),
 				parentAgentIdForDelegation: context.parentAgentId,
 				rootSessionId: context.rootSessionId,
 				rootSessionCapUsd: context.rootSessionCapUsd,

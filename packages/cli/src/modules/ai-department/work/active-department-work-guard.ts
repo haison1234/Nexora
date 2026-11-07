@@ -18,6 +18,7 @@ export class ActiveDepartmentWorkGuardImpl extends ActiveDepartmentWorkGuard {
 		departmentId: string,
 		ctx: OperationContext,
 	): Promise<ActiveWorkCheck> {
+		await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
 		const work = await this.repository.listActiveWork(projectId, departmentId, undefined, ctx);
 		return { active: work.length > 0, workIds: work.map(({ id }) => id) };
 	}
@@ -29,6 +30,7 @@ export class ActiveDepartmentWorkGuardImpl extends ActiveDepartmentWorkGuard {
 	): Promise<ActiveWorkCheck> {
 		const member = await this.repository.findMemberById(projectId, memberId, ctx);
 		if (!member) return { active: false, workIds: [] };
+		await this.repository.acquireAdmissionFence(projectId, member.departmentId, ctx);
 		const work = await this.repository.listActiveWork(
 			projectId,
 			member.departmentId,

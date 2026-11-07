@@ -49,6 +49,7 @@ describe('Preview workflow resume permissions', () => {
 			mock(),
 			mock(),
 			mock(),
+			mock(),
 		);
 
 		await service.resume(

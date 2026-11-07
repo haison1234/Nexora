@@ -24,6 +24,7 @@ import DropdownMenuItems from './DropdownMenuItems.vue';
 import DropdownMenuSearchableContent from './DropdownMenuSearchableContent.vue';
 import N8nButton from '../N8nButton/Button.vue';
 import type { IconName } from '../N8nIcon/icons';
+import { useI18n } from '../../composables/useI18n';
 
 defineOptions({ inheritAttrs: false });
 
@@ -55,6 +56,7 @@ const emit = defineEmits<{
 
 const slots = defineSlots<DropdownMenuSlots<T, D>>();
 const $style = useCssModule();
+const { t } = useI18n();
 
 provide(
 	DropdownMenuPortalTargetKey,
@@ -455,6 +457,7 @@ defineExpose({ open, close, highlightFirstItem, handleExternalKeydown, focusTrig
 				:icon="activatorIcon?.type === 'icon' ? (activatorIcon.value as IconName) : undefined"
 				:disabled="disabled"
 				:icon-only="true"
+				:aria-label="activatorLabel ?? t('setupPanel.moreOptions')"
 				variant="ghost"
 				size="xsmall"
 			>

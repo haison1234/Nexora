@@ -236,6 +236,13 @@ export class AgentMessageQueueRepository extends BaseRepository<AgentMessageQueu
 		});
 	}
 
+	async findDepartmentStopTarget(messageId: string, ctx: OperationContext = {}) {
+		return await this.managerFor(ctx).findOne(AgentMessageQueue, {
+			where: { messageId },
+			relations: { thread: true, message: true },
+		});
+	}
+
 	async findPublishedConnection(
 		agentId: string,
 		projectId: string,

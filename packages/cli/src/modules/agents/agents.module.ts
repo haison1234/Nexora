@@ -10,11 +10,49 @@ export class AgentsModule implements ModuleInterface {
 	async init() {
 		const { AgentBindingResolver } = await import('./agent-binding-resolver.service.js');
 		Container.get(AgentBindingResolver);
-		const { DepartmentExecutorProxy } = await import('./agent-department-execution.contracts.js');
+		const {
+			DepartmentExecutorProxy,
+			DepartmentWorkflowInvocationOwnerProxy,
+			DepartmentWorkflowInvocationInputsProxy,
+		} = await import('./agent-department-execution.contracts.js');
 		const { AgentDepartmentExecutionAdapter } = await import(
 			'./agent-department-execution.adapter.js'
 		);
 		Container.get(DepartmentExecutorProxy).register(Container.get(AgentDepartmentExecutionAdapter));
+		const { AgentDepartmentWorkflowInvocationOwnerService } = await import(
+			'./agent-department-workflow-invocation-owner.service.js'
+		);
+		Container.get(DepartmentWorkflowInvocationOwnerProxy).register(
+			Container.get(AgentDepartmentWorkflowInvocationOwnerService),
+		);
+		const { AgentDepartmentWorkflowInvocationInputService } = await import(
+			'./agent-department-workflow-invocation-input.service.js'
+		);
+		Container.get(DepartmentWorkflowInvocationInputsProxy).register(
+			Container.get(AgentDepartmentWorkflowInvocationInputService),
+		);
+		const { DepartmentMeetingInvocationOwnerProxy } = await import(
+			'./agent-department-meeting-invocation.contracts.js'
+		);
+		const { AgentDepartmentMeetingInvocationOwnerService } = await import(
+			'./agent-department-meeting-invocation-owner.service.js'
+		);
+		Container.get(DepartmentMeetingInvocationOwnerProxy).register(
+			Container.get(AgentDepartmentMeetingInvocationOwnerService),
+		);
+		const { DepartmentConsultationInvocationOwnerProxy } = await import(
+			'./agent-department-consultation.contracts.js'
+		);
+		const { AgentDepartmentConsultationInvocationOwnerService } = await import(
+			'./agent-department-consultation-invocation-owner.service.js'
+		);
+		Container.get(DepartmentConsultationInvocationOwnerProxy).register(
+			Container.get(AgentDepartmentConsultationInvocationOwnerService),
+		);
+		const { AgentDepartmentConsultationInvocationRepository } = await import(
+			'./repositories/agent-department-consultation-invocation.repository.js'
+		);
+		Container.get(AgentDepartmentConsultationInvocationRepository);
 		const { SandboxSettingsService } = await import('@/services/sandbox-settings.service.js');
 		Container.get(SandboxSettingsService).registerCredentialUses();
 
@@ -153,6 +191,10 @@ export class AgentsModule implements ModuleInterface {
 		const logger = Container.get(Logger);
 		const instanceSettings = Container.get(InstanceSettings);
 		if (instanceSettings.instanceType === 'main') {
+			const { AgentDepartmentStopReconciler } = await import(
+				'./agent-department-stop-reconciler.service.js'
+			);
+			Container.get(AgentDepartmentStopReconciler).start();
 			const { AgentMessageQueueConsumer } = await import(
 				'./agent-message-queue-consumer.service.js'
 			);
@@ -231,11 +273,15 @@ export class AgentsModule implements ModuleInterface {
 		const { AgentChannelMediaRetentionTask } = await import(
 			'./agent-channel-media-retention.task.js'
 		);
+		const { AgentDepartmentWorkflowEventTask } = await import(
+			'./agent-department-workflow-event.task.js'
+		);
 
 		const tasks: SystemTaskClass[] = [
 			AgentCheckpointPruningTask,
 			AgentInterruptedExecutionSweepTask,
 			AgentChannelMediaRetentionTask,
+			AgentDepartmentWorkflowEventTask,
 		];
 
 		// Like `telemetry-pulse`: make sure no job is scheduled when telemetry is off.
@@ -279,6 +325,27 @@ export class AgentsModule implements ModuleInterface {
 			'./entities/agent-execution-message-link.entity.js'
 		);
 		const { AgentExecutionThread } = await import('./entities/agent-execution-thread.entity.js');
+		const { AgentDepartmentStopReceipt } = await import(
+			'./entities/agent-department-stop-receipt.entity.js'
+		);
+		const { AgentDepartmentWorkflowEvent } = await import(
+			'./entities/agent-department-workflow-event.entity.js'
+		);
+		const { AgentDepartmentWorkflowInput } = await import(
+			'./entities/agent-department-workflow-input.entity.js'
+		);
+		const { AgentDepartmentMeetingInvocation } = await import(
+			'./entities/agent-department-meeting-invocation.entity.js'
+		);
+		const { AgentDepartmentConsultationInvocation } = await import(
+			'./entities/agent-department-consultation-invocation.entity.js'
+		);
+		const { AgentDepartmentConsultationInvocationGate } = await import(
+			'./entities/agent-department-consultation-invocation-gate.entity.js'
+		);
+		const { AgentDepartmentMeetingInvocationGate } = await import(
+			'./entities/agent-department-meeting-invocation-gate.entity.js'
+		);
 		const { AgentThreadGrant } = await import('./entities/agent-thread-grant.entity.js');
 		const { AgentExecution } = await import('./entities/agent-execution.entity.js');
 		const { AgentMessageQueue } = await import('./entities/agent-message-queue.entity.js');
@@ -335,6 +402,13 @@ export class AgentsModule implements ModuleInterface {
 			AgentMessageEntity,
 			AgentExecutionMessageLink,
 			AgentExecutionThread,
+			AgentDepartmentStopReceipt,
+			AgentDepartmentWorkflowEvent,
+			AgentDepartmentWorkflowInput,
+			AgentDepartmentMeetingInvocation,
+			AgentDepartmentMeetingInvocationGate,
+			AgentDepartmentConsultationInvocation,
+			AgentDepartmentConsultationInvocationGate,
 			AgentThreadGrant,
 			AgentExecution,
 			AgentMessageQueue,

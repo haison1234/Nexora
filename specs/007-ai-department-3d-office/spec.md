@@ -78,6 +78,7 @@ As a user with reduced motion or limited rendering support, I retain all informa
 
 - Requires 006B. External runtime 005 is not required.
 - Three.js with new procedural primitives is the selected renderer design. Dependency notices, asset provenance, and measured device budgets remain enablement checks.
+- **Amendment 2026-11-06 (approved by the user):** The first build may adapt patterns from the MIT-licensed `3d-claude-hub-remote` (revision `c1e8ba18dcc594d36932ffcf822adb0136633b0e`): labels, status ring, communication link, camera presets, and demand rendering. Each adapted file needs a provenance record. The hub server, hooks, and sessions panel stay excluded. The Org and Office views follow `docs/design/org-office/`. Office stays optional and lazy. This amendment does not change the order in the roadmap.
 - Timing uses the roadmap fixture and is a proposed target.
 
 ## Out of Scope

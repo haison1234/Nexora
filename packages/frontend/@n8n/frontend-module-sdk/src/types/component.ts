@@ -84,6 +84,7 @@ export type SlotProjectHeaderMainButton =
 
 export type SlotProjectHeaderProps = {
 	hasActiveCallouts?: boolean;
+	hideHeaderActions?: boolean;
 	mainButton?: SlotProjectHeaderMainButton;
 };
 

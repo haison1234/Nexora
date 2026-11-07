@@ -2030,6 +2030,7 @@ describe('AgentExecutionService', () => {
 			{ source: 'n8n_chat_production', allowed: true },
 			{ source: 'n8n_chat', allowed: false },
 			{ source: 'chat', allowed: false },
+			{ source: 'ai-department', allowed: false },
 		])('checks the first source: $source', async ({ source, allowed }) => {
 			agentExecutionThreadRepository.findOneBy.mockResolvedValue(makeThread());
 			agentExecutionRepository.findFirstSourceByThreadIds.mockResolvedValue(
@@ -2044,6 +2045,23 @@ describe('AgentExecutionService', () => {
 					'existing',
 				),
 			).toBe(allowed);
+		});
+
+		it('allows a department owner run on its private production thread', async () => {
+			agentExecutionThreadRepository.findOneBy.mockResolvedValue(makeThread());
+			agentExecutionRepository.findFirstSourceByThreadIds.mockResolvedValue(
+				new Map([['thread-1', 'ai-department']]),
+			);
+			expect(
+				await service.canUseProductionChatThread(
+					'thread-1',
+					'project-1',
+					'agent-1',
+					'user-1',
+					'existing',
+					true,
+				),
+			).toBe(true);
 		});
 
 		it('rejects a new session ID that another memory scope already uses', async () => {

@@ -28,6 +28,9 @@ const root = ref<HTMLDivElement>();
 const tabs = ref<HTMLDivElement>();
 let resizeObserver: ResizeObserver | null = null;
 
+const hasRouteLinks = () =>
+	props.options.some((option) => (option.href || option.to) && !option.disabled);
+
 function updateScrollState() {
 	const container = tabs.value;
 	if (!container) return;
@@ -124,7 +127,7 @@ function scroll(direction: 'left' | 'right') {
 		>
 			<N8nIcon icon="chevron-left" size="small" />
 		</button>
-		<div ref="tabs" role="tablist" :class="$style.tabs">
+		<div ref="tabs" :role="hasRouteLinks() ? 'group' : 'tablist'" :class="$style.tabs">
 			<div
 				v-for="option in options"
 				:id="option.value.toString()"
@@ -140,6 +143,7 @@ function scroll(direction: 'left' | 'right') {
 					     below so they can't navigate and get consistent disabled styling. -->
 					<a
 						v-if="option.href && !option.disabled"
+						:aria-current="modelValue === option.value ? 'page' : undefined"
 						target="_blank"
 						:href="option.href"
 						rel="noopener noreferrer"
@@ -160,6 +164,7 @@ function scroll(direction: 'left' | 'right') {
 					<RouterLink
 						v-else-if="option.to && !option.disabled"
 						:to="option.to"
+						:aria-current="modelValue === option.value ? 'page' : undefined"
 						:class="[
 							$style.tab,
 							{ [$style.activeTab]: modelValue === option.value, [$style.noText]: !option.label },
@@ -172,9 +177,10 @@ function scroll(direction: 'left' | 'right') {
 					</RouterLink>
 					<div
 						v-else
-						role="tab"
+						:role="hasRouteLinks() ? 'button' : 'tab'"
 						tabindex="0"
-						:aria-selected="modelValue === option.value"
+						:aria-selected="hasRouteLinks() ? undefined : modelValue === option.value"
+						:aria-pressed="hasRouteLinks() ? modelValue === option.value : undefined"
 						:class="{
 							[$style.tab]: true,
 							[$style.activeTab]: modelValue === option.value,

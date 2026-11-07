@@ -6,6 +6,7 @@ import N8nDropdownMenu from '../N8nDropdownMenu/DropdownMenu.vue';
 import N8nIcon from '../N8nIcon';
 import N8nIconButton from '../N8nIconButton';
 import N8nTooltip from '../N8nTooltip';
+import { useI18n } from '../../composables/useI18n';
 import type { ActionToggleItem, ActionToggleProps } from './ActionToggle.types';
 
 type ActionValue = T;
@@ -22,6 +23,7 @@ const props = withDefaults(defineProps<ActionToggleProps<T>>(), {
 	disabled: false,
 	trigger: 'click',
 });
+const { t } = useI18n();
 
 const emit = defineEmits<{
 	action: [value: ActionValue];
@@ -107,6 +109,7 @@ defineExpose({
 						icon="ellipsis-12"
 						:size="size"
 						:icon-size="iconSize"
+						:aria-label="ariaLabel ?? t('setupPanel.moreOptions')"
 						:disabled="disabled"
 						role="button"
 						:aria-controls="dropdownId"

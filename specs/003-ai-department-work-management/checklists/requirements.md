@@ -65,7 +65,7 @@ the gate that applies to each slice.
 ### Approved amendment acceptance gates — OPEN
 
 - [ ] G1: Agent inbox/coalescing and lost-wake acceptance.
-- [ ] G2: scoped stop proof, snapshot ordering, and recovery acceptance.
+- [ ] G2: scoped stop proof, snapshot ordering, and recovery acceptance. Controlled revocation/snapshot tests pass. Live evidence shows receipt persistence and sweeper-driven recovery after restart, not a stop request ending a live run. Historical sequence values are not persisted, and owner-thread counters differ from attempt `lastOwnerSequence`; see `specs/feature-contracts/ai-department/evidence.md`.
 - [ ] G3: Agent reviewer context; human-only review is independent.
 
 Product decisions are approved. These checks remain open until evidence covers the

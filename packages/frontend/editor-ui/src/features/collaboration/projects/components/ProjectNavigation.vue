@@ -278,6 +278,7 @@ onBeforeUnmount(() => {
 			>
 				<N8nMenuItem
 					:item="instanceAi"
+					trigger
 					:compact="props.collapsed"
 					:active="
 						activeTabId === 'instance-ai' && !isInstanceAiThreadView && !isAgentN8nChatThreadView
@@ -291,6 +292,7 @@ onBeforeUnmount(() => {
 			</N8nChatHintPopover>
 			<N8nMenuItem
 				:item="home"
+				role="link"
 				:compact="props.collapsed"
 				:active="sidebarActiveTabId === 'home'"
 				data-test-id="project-home-menu-item"
@@ -301,6 +303,7 @@ onBeforeUnmount(() => {
 					(projectsStore.isTeamProjectFeatureEnabled || isFoldersFeatureEnabled)
 				"
 				:item="personalProject"
+				role="link"
 				:compact="props.collapsed"
 				:active="sidebarActiveTabId === personalProject.id"
 				data-test-id="project-personal-menu-item"
@@ -311,6 +314,7 @@ onBeforeUnmount(() => {
 					hasMultipleVerifiedUsers
 				"
 				:item="shared"
+				role="link"
 				:compact="props.collapsed"
 				:active="sidebarActiveTabId === 'shared'"
 				data-test-id="project-shared-menu-item"
@@ -318,6 +322,7 @@ onBeforeUnmount(() => {
 			<N8nMenuItem
 				v-if="isInboxVisible"
 				:item="inbox"
+				role="link"
 				:compact="props.collapsed"
 				:active="sidebarActiveTabId === 'inbox'"
 				data-test-id="project-inbox-menu-item"
@@ -325,6 +330,7 @@ onBeforeUnmount(() => {
 			<N8nMenuItem
 				v-if="isChatLinkAvailable"
 				:item="chat"
+				role="link"
 				:compact="props.collapsed"
 				:active="sidebarActiveTabId === 'chat'"
 				data-test-id="project-chat-menu-item"
@@ -361,6 +367,7 @@ onBeforeUnmount(() => {
 						>
 							<N8nMenuItem
 								:item="entry.menuItem"
+								role="link"
 								:compact="props.collapsed"
 								:active="sidebarActiveTabId === entry.menuItem.id"
 							/>
@@ -409,6 +416,7 @@ onBeforeUnmount(() => {
 						v-for="item in recentChats"
 						:key="item.thread.id"
 						:item="getChatMenuItem(item)"
+						role="link"
 						scroll-label-on-overflow
 						@click="onChatItemClick(item)"
 					>
@@ -449,6 +457,7 @@ onBeforeUnmount(() => {
 					[$style.collapsed]: props.collapsed,
 				}"
 				:item="getProjectMenuItem(project)"
+				role="link"
 				:compact="props.collapsed"
 				:active="sidebarActiveTabId === project.id"
 				data-test-id="project-menu-item"

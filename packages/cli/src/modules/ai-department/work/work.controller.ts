@@ -8,6 +8,9 @@ import {
 	UpdateAiDepartmentWorkDto,
 	UpdateAiDepartmentWorkStateDto,
 	ReviewAiDepartmentWorkDto,
+	ReopenAiDepartmentWorkReviewDto,
+	CreateAiDepartmentWorkActivityDto,
+	CreateAiDepartmentWorkHelpAnswerDto,
 } from '@n8n/api-types';
 import { AuthenticatedRequest } from '@n8n/db';
 import {
@@ -28,11 +31,15 @@ import type { Response } from 'express';
 import { userHasScopes } from '@/permissions.ee/check-access';
 
 import { WorkService } from './work.service';
+import { WorkHelpService } from './work-help.service';
 
 @Service()
 @RestController('/projects/:projectId/ai-departments/:departmentId')
 export class WorkController {
-	constructor(private readonly service: WorkService) {}
+	constructor(
+		private readonly service: WorkService,
+		private readonly help: WorkHelpService,
+	) {}
 
 	@Get('/goals')
 	@ProjectScope('agent:list')
@@ -95,6 +102,21 @@ export class WorkController {
 		return await this.service.listWork(req.params.projectId, req.params.departmentId, query);
 	}
 
+	@Get('/activity')
+	@ProjectScope('agent:read')
+	async listDepartmentActivity(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Query query: AiDepartmentWorkListQueryDto,
+	) {
+		return await this.service.listDepartmentActivity(
+			req.params.projectId,
+			req.params.departmentId,
+			query.take,
+			query.skip,
+		);
+	}
+
 	@Post('/work')
 	@ProjectScope('agent:create')
 	async createWork(
@@ -137,6 +159,61 @@ export class WorkController {
 		);
 	}
 
+	@Get('/work/:workId/help-requests')
+	@ProjectScope('agent:read')
+	async listHelpRequests(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Param('workId') workId: string,
+	) {
+		return await this.help.listForWork(req.params.projectId, req.params.departmentId, workId);
+	}
+
+	@Post('/work/:workId/help-requests/:helpRequestId/answer')
+	@ProjectScope('agent:update')
+	async answerHelpRequest(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Param('workId') workId: string,
+		@Param('helpRequestId') helpRequestId: string,
+		@Body dto: CreateAiDepartmentWorkHelpAnswerDto,
+	) {
+		return await this.help.answer(
+			req.params.projectId,
+			req.params.departmentId,
+			workId,
+			helpRequestId,
+			req.user.id,
+			dto,
+		);
+	}
+
+	@Get('/work-help/attention')
+	@ProjectScope('agent:read')
+	async listHelpRequestsAttention(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+	) {
+		return await this.help.listAttention(req.params.projectId, req.params.departmentId);
+	}
+
+	@Post('/work/:workId/activity')
+	@ProjectScope('agent:update')
+	async addWorkActivity(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Param('workId') workId: string,
+		@Body dto: CreateAiDepartmentWorkActivityDto,
+	) {
+		return await this.service.addUserWorkActivity(
+			req.params.projectId,
+			req.user.id,
+			req.params.departmentId,
+			workId,
+			dto,
+		);
+	}
+
 	@Get('/work/:workId/relationships')
 	@ProjectScope('agent:list')
 	async listRelationships(
@@ -149,6 +226,30 @@ export class WorkController {
 			req.params.departmentId,
 			workId,
 		);
+	}
+
+	@Get('/work/:workId/claim')
+	@ProjectScope('agent:read')
+	async getCurrentClaim(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Param('workId') workId: string,
+	) {
+		return await this.service.getCurrentClaim(
+			req.params.projectId,
+			req.params.departmentId,
+			workId,
+		);
+	}
+
+	@Get('/work/:workId/wake')
+	@ProjectScope('agent:read')
+	async getWakeStatus(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Param('workId') workId: string,
+	) {
+		return await this.service.getWakeStatus(req.params.projectId, req.params.departmentId, workId);
 	}
 
 	@Post('/work/:workId/relationships')
@@ -308,6 +409,23 @@ export class WorkController {
 		);
 	}
 
+	@Post('/work/:workId/review/reopen')
+	@ProjectScope('agent:update')
+	async reopenReview(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Param('workId') workId: string,
+		@Body dto: ReopenAiDepartmentWorkReviewDto,
+	) {
+		return await this.service.reopenReview(
+			req.params.projectId,
+			req.user.id,
+			req.params.departmentId,
+			workId,
+			dto,
+		);
+	}
+
 	@Get('/work/:workId/history')
 	@ProjectScope('agent:read')
 	async getWorkHistory(
@@ -318,6 +436,20 @@ export class WorkController {
 		return await this.service.getWorkHistory(req.params.projectId, req.params.departmentId, workId);
 	}
 
+	@Get('/work/:workId/review/decisions')
+	@ProjectScope('agent:read')
+	async listReviewDecisions(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+		@Param('workId') workId: string,
+	) {
+		return await this.service.listReviewDecisions(
+			req.params.projectId,
+			req.params.departmentId,
+			workId,
+		);
+	}
+
 	@Get('/work/:workId/attempts')
 	@ProjectScope('agent:read')
 	async listAttempts(
@@ -326,5 +458,17 @@ export class WorkController {
 		@Param('workId') workId: string,
 	) {
 		return await this.service.listAttempts(req.params.projectId, req.params.departmentId, workId);
+	}
+
+	@Get('/tool-approvals')
+	@ProjectScope('agent:read')
+	async listToolApprovalAttention(
+		req: AuthenticatedRequest<{ projectId: string; departmentId: string }>,
+		_res: Response,
+	) {
+		return await this.service.listToolApprovalAttention(
+			req.params.projectId,
+			req.params.departmentId,
+		);
 	}
 }

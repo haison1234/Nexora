@@ -311,6 +311,43 @@ describe('spawn', () => {
 		expect(runner.run.mock.calls[1][0]).not.toHaveProperty('parentExecutionId');
 	});
 
+	it('forwards the department workflow allowlist to detached child runs', async () => {
+		const { backgroundRunner, runner, context } = setup();
+
+		await backgroundRunner.spawn(request, {
+			...context,
+			departmentWorkflowIds: ['workflow-1'],
+		});
+		await flushDetachedRun();
+
+		expect(runner.run.mock.calls[0][1]).toMatchObject({
+			departmentWorkflowIds: ['workflow-1'],
+		});
+	});
+
+	it('forwards pinned workflow capability revisions to detached child runs', async () => {
+		const { backgroundRunner, runner, context } = setup();
+		const capability = {
+			id: 'capability-1',
+			workflowId: 'workflow-1',
+			version: 4,
+			purpose: 'Approved task',
+			publishedVersionRef: 'published-v2',
+			triggerCompatibilityRef: 'execute-workflow-v1',
+			inputSchemaFingerprint: 'schema-v2',
+		};
+
+		await backgroundRunner.spawn(request, {
+			...context,
+			departmentWorkflowCapabilities: [capability],
+		});
+		await flushDetachedRun();
+
+		expect(runner.run.mock.calls[0][1]).toMatchObject({
+			departmentWorkflowCapabilities: [capability],
+		});
+	});
+
 	it('runs on its own abort scope without parent telemetry or execution counter', async () => {
 		const { backgroundRunner, runner, context } = setup();
 

@@ -1,5 +1,9 @@
 import type { EpisodicScopeDecision, JSONObject, SerializableAgentState } from '@n8n/agents';
-import type { AgentMessageAuthor, AgentMessageIntegrationOrigin } from '@n8n/api-types';
+import type {
+	AgentMessageAuthor,
+	AgentMessageIntegrationOrigin,
+	AiDepartmentWorkflowCapabilitySnapshot,
+} from '@n8n/api-types';
 import type { Author } from 'chat';
 import type { BridgeExecutionContext } from '../integrations/agent-chat-integration';
 
@@ -8,6 +12,8 @@ import type {
 	SessionBinding,
 } from '../integrations/integration-tool-types';
 import type { StoredAttachmentRef } from './agent-chat-attachment';
+import type { DepartmentMeetingInvocationRequest } from '../agent-department-meeting-invocation.contracts';
+import type { DepartmentConsultationInvocationRequest } from '../agent-department-consultation.contracts';
 
 interface QueuedMessageInput {
 	message: string;
@@ -30,6 +36,13 @@ export interface QueuedUserChatMessage extends QueuedMessageInput {
 	 * `origin.hidden`, stays out of the transcript and the pending list.
 	 */
 	hidden?: boolean;
+	/** Workflow capabilities pinned to this department attempt. */
+	departmentWorkflowIds?: string[];
+	departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
+	/** Agents-owned meeting identity. Meeting inputs must never use the work queue source. */
+	departmentMeetingInvocation?: DepartmentMeetingInvocationRequest;
+	/** Agents-owned help consultation identity. */
+	departmentConsultationInvocation?: DepartmentConsultationInvocationRequest;
 }
 
 /**
@@ -61,7 +74,14 @@ export type AgentQueuedMessage = QueuedUserChatMessage | QueuedIntegrationMessag
 /** Queue storage keeps dispatch data. Conversation input belongs to the referenced message. */
 export type AgentQueueDispatch =
 	// `hidden` is stored on the message origin, not in the dispatch.
-	| { kind: QueuedUserChatMessage['kind']; options?: Record<string, unknown> }
+	| {
+			kind: QueuedUserChatMessage['kind'];
+			options?: Record<string, unknown>;
+			departmentWorkflowIds?: string[];
+			departmentWorkflowCapabilities?: AiDepartmentWorkflowCapabilitySnapshot[];
+			departmentMeetingInvocation?: DepartmentMeetingInvocationRequest;
+			departmentConsultationInvocation?: DepartmentConsultationInvocationRequest;
+	  }
 	| (Omit<
 			QueuedIntegrationMessage,
 			| keyof QueuedMessageInput

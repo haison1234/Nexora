@@ -2,6 +2,7 @@ import { mockLogger } from '@n8n/backend-test-utils';
 import type { AgentIntegrationConfig } from '@n8n/api-types';
 import type { User, UserRepository } from '@n8n/db';
 import { createDeferredPromise } from '@n8n/utils/promise/deferred-promise';
+import { createHash } from 'node:crypto';
 import { mock } from 'vitest-mock-extended';
 
 import type { CredentialsService } from '@/credentials/credentials.service';
@@ -21,10 +22,21 @@ import type { AgentMessageEntity } from '../entities/agent-message.entity';
 import type { AgentChatBridge } from '../integrations/agent-chat-bridge';
 import type { ChatIntegrationService } from '../integrations/chat-integration.service';
 import type { AgentMessageQueueRepository } from '../repositories/agent-message-queue.repository';
+import type { AgentDepartmentMeetingInvocationRepository } from '../repositories/agent-department-meeting-invocation.repository';
+import type { AgentDepartmentConsultationInvocationRepository } from '../repositories/agent-department-consultation-invocation.repository';
+import type { DepartmentConsultationBindingVerifierProxy } from '../agent-department-consultation.contracts';
 import type { SystemAgentExecutionService } from '../system-agents/system-agent-execution.service';
 import { SystemAgentRegistry } from '../system-agents/system-agent-registry';
 import type { SystemAgentProvider } from '../system-agents/system-agent.types';
 import type { AgentQueueDispatch, QueuedIntegrationMessage } from '../types/agent-queued-message';
+import {
+	hashDepartmentMeetingInvocationRequest,
+	type DepartmentMeetingInvocationRequest,
+} from '../agent-department-meeting-invocation.contracts';
+import {
+	hashDepartmentConsultationRequest,
+	type DepartmentConsultationInvocationRequest,
+} from '../agent-department-consultation.contracts';
 
 vi.mock('@/permissions.ee/check-access', () => ({ userHasScopes: vi.fn() }));
 
@@ -40,6 +52,9 @@ describe('AgentMessageQueueConsumer', () => {
 	const orchestrator = mock<AgentExecutionOrchestratorService>();
 	const sender = { send: vi.fn(), close: vi.fn(async () => {}) };
 	const systemAgentExecution = mock<SystemAgentExecutionService>();
+	const meetingInvocations = mock<AgentDepartmentMeetingInvocationRepository>();
+	const consultationInvocations = mock<AgentDepartmentConsultationInvocationRepository>();
+	const consultationBindings = mock<DepartmentConsultationBindingVerifierProxy>();
 	let systemAgents: SystemAgentRegistry;
 	let consumer: AgentMessageQueueConsumer;
 
@@ -92,6 +107,99 @@ describe('AgentMessageQueueConsumer', () => {
 		};
 	}
 
+	function meetingClaim() {
+		const identity = {
+			schemaVersion: 1 as const,
+			projectId: 'project',
+			departmentId: 'department',
+			meetingId: 'meeting',
+			participantId: 'participant',
+			invocationId: 'invocation',
+			round: 'contribution' as const,
+			actorId: 'user',
+			memberId: 'member',
+			executorId: 'agent',
+			bindingVersion: 1,
+			requestKey: 'request-key',
+			contextRef: 'context',
+			inputText: 'Provide a structured contribution.',
+			maxOutputChars: 4_000,
+			maxOutputTokens: 1_000,
+			toolPolicy: { mode: 'supplied-material-only' as const },
+			deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+		};
+		const request: DepartmentMeetingInvocationRequest = {
+			...identity,
+			expectedInputHash: hashDepartmentMeetingInvocationRequest(identity),
+		};
+		const item = {
+			...claim('meeting-thread'),
+			payload: { kind: 'n8n_chat', message: 'input', departmentMeetingInvocation: request },
+		} as ClaimedAgentMessage;
+		item.item.message.origin = { source: 'ai-department-meeting' };
+		return { item, request };
+	}
+
+	function queueMeetingClaim(item: ClaimedAgentMessage) {
+		repository.findThreadIds.mockResolvedValue(['meeting-thread']);
+		queue.claimNext.mockResolvedValueOnce(item).mockResolvedValue(null);
+		meetingInvocations.findByInvocationId.mockResolvedValue({
+			threadId: 'meeting-thread',
+			inputHash:
+				item.payload.kind === 'n8n_chat'
+					? item.payload.departmentMeetingInvocation?.expectedInputHash
+					: undefined,
+			requestKey:
+				item.payload.kind === 'n8n_chat'
+					? item.payload.departmentMeetingInvocation?.requestKey
+					: undefined,
+			inputText:
+				item.payload.kind === 'n8n_chat'
+					? item.payload.departmentMeetingInvocation?.inputText
+					: undefined,
+		} as never);
+		meetingInvocations.isCancelled.mockResolvedValue(false);
+		meetingInvocations.markRunning.mockResolvedValue({ affected: 1 } as never);
+	}
+
+	function consultationClaim() {
+		const identity = {
+			schemaVersion: 1 as const,
+			projectId: 'project',
+			departmentId: 'department',
+			helpRequestId: 'help-request',
+			invocationId: 'help-request',
+			sourceAttemptId: 'attempt',
+			requesterMemberId: 'requester',
+			recipientMemberId: 'recipient',
+			actorId: 'user',
+			executorId: 'agent',
+			bindingVersion: 3,
+			commandKey: 'help-request',
+			contextRef: 'help-request:2',
+			contextHash: 'context-hash',
+			deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+			maxOutputChars: 4_000,
+			maxOutputTokens: 1_000,
+			toolPolicy: { mode: 'none' as const, policyVersion: 'department-consultation-v1' },
+		};
+		const request: DepartmentConsultationInvocationRequest = {
+			...identity,
+			expectedInputHash: hashDepartmentConsultationRequest(identity),
+			inputText: 'Answer this help question with the supplied material.',
+		};
+		const item = {
+			...claim('consultation-thread'),
+			payload: {
+				kind: 'n8n_chat',
+				message: request.inputText,
+				departmentConsultationInvocation: request,
+			},
+		} as ClaimedAgentMessage;
+		item.item.message.origin = { source: 'ai-department-consultation', hidden: true };
+		return { item, request };
+	}
+
 	beforeEach(() => {
 		vi.resetAllMocks();
 		vi.mocked(userHasScopes).mockResolvedValue(true);
@@ -128,7 +236,226 @@ describe('AgentMessageQueueConsumer', () => {
 			mockLogger(),
 			systemAgents,
 			systemAgentExecution,
+			meetingInvocations,
+			consultationInvocations,
+			consultationBindings,
 		);
+	});
+
+	it('runs a bounded consultation and stores only its successful answer', async () => {
+		const { item, request } = consultationClaim();
+		repository.findThreadIds.mockResolvedValue(['consultation-thread']);
+		queue.claimNext.mockResolvedValueOnce(item).mockResolvedValue(null);
+		consultationInvocations.findByInvocationId.mockResolvedValue({
+			threadId: 'consultation-thread',
+			helpRequestId: request.helpRequestId,
+			inputHash: request.expectedInputHash,
+			commandKey: request.commandKey,
+			contextHash: request.contextHash,
+			inputText: request.inputText,
+		} as never);
+		consultationInvocations.isCancelled.mockResolvedValue(false);
+		consultationInvocations.markRunning.mockResolvedValue({ affected: 1 } as never);
+		consultationBindings.isCurrentBinding.mockResolvedValue(true);
+		orchestrator.executeForDepartmentConsultation.mockImplementation(async function* () {
+			yield { type: 'text-delta', delta: 'Use the last successful run as evidence.' } as never;
+			yield { type: 'finish', finishReason: 'stop' } as never;
+		});
+		consumer.start();
+
+		await vi.waitFor(() =>
+			expect(consultationInvocations.markTerminal).toHaveBeenCalledWith(
+				expect.objectContaining({
+					projectId: 'project',
+					invocationId: 'help-request',
+					outcome: 'succeeded',
+					resultText: 'Use the last successful run as evidence.',
+				}),
+			),
+		);
+		expect(orchestrator.executeForDepartmentConsultation).toHaveBeenCalledWith(
+			expect.objectContaining({ inputText: request.inputText, maxOutputTokens: 1_000 }),
+		);
+		expect(consultationBindings.isCurrentBinding).toHaveBeenCalledWith({
+			projectId: 'project',
+			departmentId: 'department',
+			memberId: 'recipient',
+			executorId: 'agent',
+			bindingVersion: 3,
+		});
+		consumer.stop();
+	});
+
+	it('discards a cancelled meeting queue item before model execution', async () => {
+		const { item, request } = meetingClaim();
+		item.thread.agentId = 'agent';
+		queueMeetingClaim(item);
+		meetingInvocations.findByInvocationId.mockResolvedValue({
+			threadId: 'meeting-thread',
+			inputHash: request.expectedInputHash,
+			requestKey: request.requestKey,
+			inputText: request.inputText,
+		} as never);
+		meetingInvocations.isCancelled.mockResolvedValue(true);
+		consumer.start();
+
+		await vi.waitFor(() =>
+			expect(queue.settle).toHaveBeenCalledWith('meeting-thread', 'execution-meeting-thread'),
+		);
+
+		expect(meetingInvocations.markTerminal).toHaveBeenCalledWith({
+			projectId: 'project',
+			invocationId: 'invocation',
+			outcome: 'cancelled',
+			safeErrorCode: 'cancelled_before_execution',
+		});
+		expect(meetingInvocations.markRunning).not.toHaveBeenCalled();
+		expect(orchestrator.executeForDepartmentMeeting).not.toHaveBeenCalled();
+	});
+
+	it('does not start a meeting when cancellation wins the start transition', async () => {
+		const { item } = meetingClaim();
+		queueMeetingClaim(item);
+		meetingInvocations.markRunning.mockResolvedValue({ affected: 0 } as never);
+		consumer.start();
+
+		await vi.waitFor(() =>
+			expect(queue.settle).toHaveBeenCalledWith('meeting-thread', 'execution-meeting-thread'),
+		);
+
+		expect(meetingInvocations.isCancelled).toHaveBeenCalledOnce();
+		expect(meetingInvocations.markRunning).toHaveBeenCalledWith('project', 'invocation');
+		expect(orchestrator.executeForDepartmentMeeting).not.toHaveBeenCalled();
+		expect(meetingInvocations.markTerminal).not.toHaveBeenCalled();
+		expect(queue.recordFailure).toHaveBeenCalledOnce();
+	});
+
+	it('rejects a meeting invocation when the thread owner differs from its actor', async () => {
+		const { item } = meetingClaim();
+		item.thread.ownerId = 'another-user';
+		queueMeetingClaim(item);
+		consumer.start();
+
+		await vi.waitFor(() => expect(queue.recordFailure).toHaveBeenCalledOnce());
+
+		expect(orchestrator.executeForDepartmentMeeting).not.toHaveBeenCalled();
+		expect(meetingInvocations.markRunning).not.toHaveBeenCalled();
+	});
+
+	it('runs one bounded meeting turn and stores only the capped output', async () => {
+		const { item } = meetingClaim();
+		queueMeetingClaim(item);
+		orchestrator.executeForDepartmentMeeting.mockImplementation(async function* () {
+			yield { type: 'text-delta', id: 'text', delta: '😀'.repeat(4_100) };
+			yield { type: 'finish', finishReason: 'stop' };
+		});
+		consumer.start();
+
+		await vi.waitFor(() => expect(meetingInvocations.markTerminal).toHaveBeenCalledOnce());
+
+		const resultText = '😀'.repeat(4_000);
+		expect(orchestrator.executeForDepartmentMeeting).toHaveBeenCalledOnce();
+		expect(orchestrator.executeForDepartmentMeeting).toHaveBeenCalledWith(
+			expect.objectContaining({ maxOutputTokens: 1_000 }),
+		);
+		expect(meetingInvocations.markTerminal).toHaveBeenCalledWith({
+			projectId: 'project',
+			invocationId: 'invocation',
+			outcome: 'succeeded',
+			resultText,
+			resultHash: createHash('sha256').update(resultText).digest('hex'),
+		});
+		expect(queue.recordFailure).not.toHaveBeenCalled();
+	});
+
+	it('stores a safe failure code when the provider stream throws', async () => {
+		const { item } = meetingClaim();
+		queueMeetingClaim(item);
+		orchestrator.executeForDepartmentMeeting.mockImplementation(async function* () {
+			throw new Error('private provider response details');
+		});
+		consumer.start();
+
+		await vi.waitFor(() => expect(meetingInvocations.markTerminal).toHaveBeenCalledOnce());
+
+		expect(meetingInvocations.markTerminal).toHaveBeenCalledWith({
+			projectId: 'project',
+			invocationId: 'invocation',
+			outcome: 'failed',
+			safeErrorCode: 'model_failure',
+		});
+		expect(meetingInvocations.markTerminal).not.toHaveBeenCalledWith(
+			expect.objectContaining({ resultText: expect.stringContaining('private provider') }),
+		);
+		expect(queue.recordFailure).not.toHaveBeenCalled();
+	});
+
+	it('records a quota response once without retrying or exposing provider details', async () => {
+		const { item } = meetingClaim();
+		queueMeetingClaim(item);
+		const quotaError = Object.assign(new Error('HTTP 429: private quota details'), { status: 429 });
+		orchestrator.executeForDepartmentMeeting.mockImplementation(async function* () {
+			throw quotaError;
+		});
+		consumer.start();
+
+		await vi.waitFor(() => expect(meetingInvocations.markTerminal).toHaveBeenCalledOnce());
+
+		expect(orchestrator.executeForDepartmentMeeting).toHaveBeenCalledOnce();
+		expect(meetingInvocations.markTerminal).toHaveBeenCalledWith({
+			projectId: 'project',
+			invocationId: 'invocation',
+			outcome: 'failed',
+			safeErrorCode: 'model_failure',
+		});
+		expect(meetingInvocations.markTerminal).not.toHaveBeenCalledWith(
+			expect.objectContaining({ resultText: expect.stringContaining('private quota details') }),
+		);
+		expect(queue.recordFailure).not.toHaveBeenCalled();
+	});
+
+	it('aborts a meeting turn when its deadline expires', async () => {
+		const { item, request } = meetingClaim();
+		request.deadlineAt = new Date(Date.now() + 25).toISOString();
+		const { expectedInputHash: _oldHash, ...requestIdentity } = request;
+		request.expectedInputHash = hashDepartmentMeetingInvocationRequest(requestIdentity);
+		queueMeetingClaim(item);
+		orchestrator.executeForDepartmentMeeting.mockImplementation(async function* ({ abortSignal }) {
+			await new Promise<void>((resolve) => {
+				abortSignal.addEventListener('abort', () => resolve(), { once: true });
+			});
+			yield { type: 'finish', finishReason: 'stop' };
+		});
+		consumer.start();
+
+		await vi.waitFor(() => expect(meetingInvocations.markTerminal).toHaveBeenCalledOnce());
+
+		expect(meetingInvocations.markTerminal).toHaveBeenCalledWith({
+			projectId: 'project',
+			invocationId: 'invocation',
+			outcome: 'cancelled',
+			safeErrorCode: 'deadline',
+		});
+		expect(queue.recordFailure).not.toHaveBeenCalled();
+	});
+
+	it('records cancellation when the model stream ends with a cancelled finish reason', async () => {
+		const { item } = meetingClaim();
+		queueMeetingClaim(item);
+		orchestrator.executeForDepartmentMeeting.mockImplementation(async function* () {
+			yield { type: 'finish', finishReason: 'cancelled' };
+		});
+		consumer.start();
+
+		await vi.waitFor(() => expect(meetingInvocations.markTerminal).toHaveBeenCalledOnce());
+
+		expect(meetingInvocations.markTerminal).toHaveBeenCalledWith({
+			projectId: 'project',
+			invocationId: 'invocation',
+			outcome: 'cancelled',
+			safeErrorCode: 'cancelled',
+		});
+		expect(queue.recordFailure).not.toHaveBeenCalled();
 	});
 
 	afterEach(() => consumer.stop());

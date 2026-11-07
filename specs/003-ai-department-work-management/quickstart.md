@@ -20,6 +20,28 @@ pnpm --filter n8n exec vitest run --config vitest.config.integration.ts \
   --maxWorkers=1
 ```
 
+Run the provider-backed Agent pickup and stop scenarios against the same test-owned
+SQLite database. Stop any backend that has this database open before you run them. The
+pickup test uses local Ollama at `http://127.0.0.1:1337/v1` and model `qwen2.5:3b` by
+default. Keep `N8N_USER_FOLDER` and `N8N_TEST_DEPARTMENT_RESTART_USER_FOLDER` pointed to
+the same test folder. Do not use the working instance database.
+
+```sh
+N8N_USER_FOLDER=/tmp/nexora-native-owner-test \
+N8N_TEST_DEPARTMENT_RESTART_USER_FOLDER=/tmp/nexora-native-owner-test \
+N8N_TEST_LIVE_DEPARTMENT_PICKUP=1 \
+pnpm --filter n8n exec vitest run --config vitest.config.integration.ts \
+  src/modules/ai-department/__tests__/work/work-live-agent-pickup.integration.test.ts \
+  --maxWorkers=1
+
+N8N_USER_FOLDER=/tmp/nexora-native-owner-test \
+N8N_TEST_DEPARTMENT_RESTART_USER_FOLDER=/tmp/nexora-native-owner-test \
+N8N_TEST_LIVE_DEPARTMENT_STOP=1 \
+pnpm --filter n8n exec vitest run --config vitest.config.integration.ts \
+  src/modules/ai-department/__tests__/work/work-live-stop.integration.test.ts \
+  --maxWorkers=1
+```
+
 Use the root/package AGENTS for formatting, lint, and any required migration/provider/browser checks. Use one worker. For external runner and Office enablement, include the feature-specific matrix or device measurement below; unit tests alone are insufficient.
 
 ## Acceptance Scenarios

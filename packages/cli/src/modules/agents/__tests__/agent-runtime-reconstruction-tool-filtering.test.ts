@@ -304,6 +304,36 @@ describe('AgentRuntimeReconstructionService — per-user tool filtering', () => 
 		);
 	});
 
+	it('keeps Department workflow tools disabled while owner verification is pending', async () => {
+		const { service } = makeService({});
+		const selectedWorkflow: typeof workflowTool = { ...workflowTool, workflowId: 'wf-selected' };
+		const unselectedWorkflow: typeof workflowTool = {
+			...workflowTool,
+			workflowId: 'wf-unselected',
+		};
+
+		buildFromJsonResolvingTools([]);
+		await service.reconstructFromAgentEntity(
+			makeAgentEntity([
+				nodeToolWithoutCredential,
+				selectedWorkflow,
+				unselectedWorkflow,
+				customTool,
+			]),
+			mock<CredentialProvider>(),
+			'production',
+			undefined,
+			undefined,
+			undefined,
+			'manual',
+			undefined,
+			{ departmentWorkflowIds: ['wf-selected'] },
+		);
+
+		expect(toolNamesPassedToBuildFromJson()).toEqual(['Get date', 'custom_tool']);
+		expect(resolveWorkflowToolMock).not.toHaveBeenCalled();
+	});
+
 	it('forwards the production n8n Chat marker to workflow tools', async () => {
 		const { service } = makeService({});
 		setupN8nChatToolDependencies();
@@ -788,6 +818,27 @@ describe('AgentRuntimeReconstructionService.reconstructFromResolvedSource — pe
 			tools,
 		};
 	}
+
+	it('keeps Department workflow tools disabled in delegated runtimes', async () => {
+		const { service } = makeService({});
+		const config = makeResolvedSourceConfig([workflowTool, customTool]);
+
+		await service.reconstructFromResolvedSource({
+			config,
+			memoryOwnerAgentId: 'child-1',
+			projectId,
+			credentialProvider: mock<CredentialProvider>(),
+			toolDescriptors: {},
+			toolCodeByName: {},
+			skills: {},
+			runtimeProfile: 'sub-agent',
+			runType: 'production',
+			departmentWorkflowIds: ['wf-1'],
+		});
+
+		expect(toolNamesPassedToBuildFromJson()).toEqual(['custom_tool']);
+		expect(resolveWorkflowToolMock).not.toHaveBeenCalled();
+	});
 
 	it('filters sub-agent tools by the delegating user access when a user is present', async () => {
 		vi.mocked(userHasScopes).mockResolvedValue(false);

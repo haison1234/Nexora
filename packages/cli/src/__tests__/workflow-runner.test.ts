@@ -60,7 +60,7 @@ import { OwnershipService } from '@/services/ownership.service';
 import { Telemetry } from '@/telemetry';
 import * as WorkflowExecuteAdditionalData from '@/workflow-execute-additional-data';
 import { EXECUTION_ENDED_WITHOUT_RESPONSE } from '@/webhooks/constants';
-import type { Job, JobFinishedProps } from '@/scaling/scaling.types';
+import type { Job, JobFinishedProps, JobQueue } from '@/scaling/scaling.types';
 import { WorkflowRunner } from '@/workflow-runner';
 
 // `@/scaling/scaling.service` is dynamically imported by `enqueueExecution`.
@@ -71,6 +71,7 @@ const setupQueue = vi.fn();
 const addJob = vi.fn();
 const waitForJob = vi.fn();
 const popJobResult = vi.fn();
+const getOrCreateQueue = vi.fn();
 
 @Service()
 class MockScalingService {
@@ -81,6 +82,8 @@ class MockScalingService {
 	waitForJob = waitForJob;
 
 	popJobResult = popJobResult;
+
+	getOrCreateQueue = getOrCreateQueue;
 }
 
 vi.mock('@/scaling/scaling.service', () => ({
@@ -1160,6 +1163,138 @@ describe('run', () => {
 	});
 });
 
+describe('department queue acceptance', () => {
+	it('pins the resolved queue in department execution data before persistence', async () => {
+		const previousMode = globalConfig.executions.mode;
+		const previousPoolConfigService = Reflect.get(runner, 'poolConfigService');
+		globalConfig.executions.mode = 'queue';
+		const { PoolConfigService } = await import('@/scaling/pool-config.service.ee.js');
+		vi.spyOn(Container.get(PoolConfigService), 'resolvePoolForExecution').mockResolvedValueOnce({
+			queueName: 'jobs-pool-a',
+			poolName: 'pool-a',
+		});
+		const data = mock<IWorkflowExecutionDataProcess>({
+			executionMode: 'integrated',
+			projectId: 'project-a',
+			executionData: {
+				resultData: {
+					metadata: { aiDepartmentWorkflowInvocationId: 'invocation-a' },
+				},
+			},
+		});
+
+		try {
+			// @ts-expect-error Private helper
+			await runner.pinDepartmentQueue(data);
+			expect(data.executionData?.resultData.metadata).toEqual({
+				aiDepartmentWorkflowInvocationId: 'invocation-a',
+				aiDepartmentWorkflowQueueName: 'jobs-pool-a',
+			});
+		} finally {
+			globalConfig.executions.mode = previousMode;
+			Reflect.set(runner, 'poolConfigService', previousPoolConfigService);
+		}
+	});
+
+	it('confirms a delayed child job by its native execution id and project pool', async () => {
+		const previousMode = globalConfig.executions.mode;
+		const previousScalingService = Reflect.get(runner, 'scalingService');
+		const previousPoolConfigService = Reflect.get(runner, 'poolConfigService');
+		globalConfig.executions.mode = 'queue';
+		const { PoolConfigService } = await import('@/scaling/pool-config.service.ee.js');
+		vi.spyOn(Container.get(PoolConfigService), 'resolvePoolForExecution').mockResolvedValueOnce({
+			queueName: 'jobs-pool-a',
+			poolName: 'pool-a',
+		});
+		const jobQueue = mock<JobQueue>();
+		jobQueue.getJob.mockResolvedValue(
+			mock<Job>({
+				id: 'execution-a',
+				data: { executionId: 'execution-a' },
+				getState: vi.fn().mockResolvedValue('delayed'),
+			}),
+		);
+		getOrCreateQueue.mockResolvedValueOnce(jobQueue);
+
+		try {
+			await expect(
+				runner.isDepartmentExecutionQueued('execution-a', {
+					executionMode: 'integrated',
+					projectId: 'project-a',
+					workflowData: {
+						id: 'workflow-a',
+						name: 'Workflow A',
+						active: false,
+						activeVersionId: null,
+						isArchived: false,
+						createdAt: new Date(),
+						updatedAt: new Date(),
+						nodes: [],
+						connections: {},
+					},
+				}),
+			).resolves.toBe(true);
+			expect(getOrCreateQueue).toHaveBeenCalledWith('jobs-pool-a');
+			expect(jobQueue.getJob).toHaveBeenCalledWith('execution-a');
+		} finally {
+			globalConfig.executions.mode = previousMode;
+			Reflect.set(runner, 'scalingService', previousScalingService);
+			Reflect.set(runner, 'poolConfigService', previousPoolConfigService);
+		}
+	});
+
+	it('uses the persisted queue after project pool settings change', async () => {
+		const previousMode = globalConfig.executions.mode;
+		const previousScalingService = Reflect.get(runner, 'scalingService');
+		const previousPoolConfigService = Reflect.get(runner, 'poolConfigService');
+		globalConfig.executions.mode = 'queue';
+		const { PoolConfigService } = await import('@/scaling/pool-config.service.ee.js');
+		const resolvePool = vi.spyOn(Container.get(PoolConfigService), 'resolvePoolForExecution');
+		const jobQueue = mock<JobQueue>();
+		jobQueue.getJob.mockResolvedValue(
+			mock<Job>({
+				id: 'execution-a',
+				data: { executionId: 'execution-a' },
+				getState: vi.fn().mockResolvedValue('waiting'),
+			}),
+		);
+		getOrCreateQueue.mockResolvedValueOnce(jobQueue);
+
+		try {
+			await expect(
+				runner.isDepartmentExecutionQueued(
+					'execution-a',
+					mock<IWorkflowExecutionDataProcess>({
+						executionMode: 'integrated',
+						projectId: 'project-a',
+						workflowData: {
+							id: 'workflow-a',
+							name: 'Workflow A',
+							nodes: [],
+							connections: {},
+						},
+						executionData: createRunExecutionData({
+							resultData: {
+								runData: {},
+								metadata: {
+									aiDepartmentWorkflowInvocationId: 'invocation-a',
+									aiDepartmentWorkflowQueueName: 'jobs-pool-old',
+								},
+							},
+						}),
+					}),
+				),
+			).resolves.toBe(true);
+			expect(getOrCreateQueue).toHaveBeenCalledWith('jobs-pool-old');
+			expect(resolvePool).not.toHaveBeenCalled();
+		} finally {
+			globalConfig.executions.mode = previousMode;
+			Reflect.set(runner, 'scalingService', previousScalingService);
+			Reflect.set(runner, 'poolConfigService', previousPoolConfigService);
+		}
+	});
+});
+
 describe('enqueueExecution', () => {
 	it('should setup queue when scalingService is not initialized', async () => {
 		const activeExecutions = Container.get(ActiveExecutions);
@@ -1406,6 +1541,36 @@ describe('enqueueExecution', () => {
 			}),
 			expect.any(Object),
 		);
+	});
+
+	it('uses the native execution id as a stable queue job id for department children', async () => {
+		const activeExecutions = Container.get(ActiveExecutions);
+		vi.spyOn(activeExecutions, 'attachWorkflowExecution').mockReturnValue();
+		vi.spyOn(runner, 'processError').mockResolvedValue();
+		const data = mock<IWorkflowExecutionDataProcess>({
+			workflowData: { nodes: [], staticData: {} },
+			executionData: {
+				resultData: {
+					metadata: {
+						aiDepartmentWorkflowInvocationId: 'invocation-a',
+						aiDepartmentWorkflowQueueName: 'jobs-pool-old',
+					},
+				},
+			},
+		});
+		const error = new Error('stop for test purposes');
+		addJob.mockRejectedValueOnce(error);
+
+		await expect(
+			// @ts-expect-error Private method
+			runner.enqueueExecution('execution-a', 'workflow-a', data),
+		).rejects.toThrowError(error);
+
+		expect(addJob).toHaveBeenCalledWith(expect.any(Object), {
+			priority: 100,
+			queueName: 'jobs-pool-old',
+			jobId: 'execution-a',
+		});
 	});
 
 	it.each([

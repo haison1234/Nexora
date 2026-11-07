@@ -488,6 +488,29 @@ describe('ExecutionPersistence', () => {
 				expect(jsonStore.delete).not.toHaveBeenCalled();
 			});
 
+			it('does not reclaim a department child execution while queue acceptance is unknown', async () => {
+				const fsPersistence = createPersistenceService('fs');
+				const mockTx = createMockTransaction();
+				mockTx.findOne.mockResolvedValue(mockTombstone('fs'));
+				executionRepository.runInTransaction = createMockRunInTransaction(mockTx);
+				const departmentPayload: CreateExecutionPayload = {
+					...payloadWithKey,
+					data: {
+						...createEmptyRunExecutionData(),
+						resultData: {
+							...createEmptyRunExecutionData().resultData,
+							metadata: { aiDepartmentWorkflowInvocationId: 'invocation-1' },
+						},
+					},
+				};
+
+				await fsPersistence.create(departmentPayload);
+
+				expect(mockTx.findOne).not.toHaveBeenCalled();
+				expect(mockTx.delete).not.toHaveBeenCalled();
+				expect(jsonStore.delete).not.toHaveBeenCalled();
+			});
+
 			it('does not clear the blob when the tombstone advanced out of `new` before the delete', async () => {
 				const fsPersistence = createPersistenceService('fs');
 				const mockTx = createMockTransaction();
@@ -1400,6 +1423,16 @@ describe('ExecutionPersistence', () => {
 				);
 			});
 		});
+	});
+
+	it('finds an execution ID by its native deduplication key', async () => {
+		executionRepository.findExecutionIdByDeduplicationKey.mockResolvedValue('exec-1');
+		const persistence = createPersistenceService('db');
+
+		await expect(persistence.findExecutionIdByDeduplicationKey('key-1')).resolves.toBe('exec-1');
+		expect(executionRepository.findExecutionIdByDeduplicationKey).toHaveBeenCalledExactlyOnceWith(
+			'key-1',
+		);
 	});
 
 	describe('findSingleExecution', () => {

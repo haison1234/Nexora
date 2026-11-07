@@ -83,9 +83,11 @@ erDiagram
   INTEGER version
 }
 "ai_department_work_item" {
+  varchar_36_ assignedByUserId FK
   varchar_36_ assigneeMemberId FK
   datetime_3_ createdAt
   varchar_36_ currentAttemptId FK
+  INTEGER currentReviewStageIndex
   varchar_36_ departmentId FK
   datetime_3_ dueAt
   varchar_36_ goalId FK
@@ -94,6 +96,9 @@ erDiagram
   varchar_16_ priority
   varchar_36_ projectId
   varchar_16_ reviewPolicy
+  INTEGER reviewPolicyRevision
+  varchar_36_ reviewPolicyRevisionId
+  TEXT reviewStagesJson
   varchar_24_ state
   datetime_3_ updatedAt
   INTEGER version
@@ -102,6 +107,7 @@ erDiagram
   boolean archived
   datetime_3_ createdAt
   varchar_36_ departmentId FK
+  TEXT expertiseTags
   varchar_36_ id PK
   varchar_36_ managerMemberId FK
   varchar_128_ name

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { Logger } from '@n8n/backend-common';
 import { N8N_CHAT_INTEGRATION_TYPE } from '@n8n/api-types';
 import { GlobalConfig } from '@n8n/config';
@@ -21,6 +23,11 @@ import type { SubworkflowPolicyChecker } from '@/executions/pre-execution-checks
 import type { EphemeralNodeExecutor } from '@/node-execution/ephemeral-node-executor';
 import { WebhookResponseRelay } from '@/scaling/webhook-response-relay';
 import type { WorkflowRunner } from '@/workflow-runner';
+import {
+	DepartmentWorkflowInvocationInputsProxy,
+	DepartmentWorkflowInvocationOwnerProxy,
+	DepartmentWorkflowInvocationProxy,
+} from '../../agent-department-execution.contracts';
 
 import {
 	encodeAgentSandboxHostMetadata,
@@ -35,6 +42,13 @@ import {
 import type { WorkflowToolWorkflowLoader } from '../workflow-tool-workflow-loader.service';
 
 vi.mock('@n8n/utils/sleep', () => ({ sleep: vi.fn().mockResolvedValue(undefined) }));
+
+const ownerGate = vi.hoisted(() => ({ enabled: false }));
+vi.mock('../../department-workflow-invocation-gate', () => ({
+	get DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED() {
+		return ownerGate.enabled;
+	},
+}));
 
 const parentPrincipalHash = hashAgentSandboxPrincipal({ type: 'n8n-user', userId: 'user-1' });
 
@@ -70,6 +84,7 @@ function buildContext(run: ReturnType<typeof vi.fn>, extras: Partial<WorkflowToo
 describe('executeWorkflow → execution classification', () => {
 	beforeEach(() => {
 		Container.set(ExecutionPersistence, {
+			findExecutionIdByDeduplicationKey: vi.fn().mockResolvedValue(null),
 			findSingleExecution: vi
 				.fn()
 				.mockResolvedValue({ status: 'success', data: { resultData: { runData: {} } } }),
@@ -77,7 +92,18 @@ describe('executeWorkflow → execution classification', () => {
 	});
 
 	afterEach(() => {
+		ownerGate.enabled = false;
 		Container.reset();
+	});
+
+	beforeEach(() => {
+		const inputs = mock<DepartmentWorkflowInvocationInputsProxy>();
+		const stagedInputs = new Map<string, unknown>();
+		inputs.stage.mockImplementation(async ({ inputsRef, inputs: value }) => {
+			stagedInputs.set(inputsRef, value);
+		});
+		inputs.resolve.mockImplementation(async ({ inputsRef }) => stagedInputs.get(inputsRef));
+		Container.set(DepartmentWorkflowInvocationInputsProxy, inputs);
 	});
 
 	it.each(['manual', 'integrated'] as const)(
@@ -98,6 +124,450 @@ describe('executeWorkflow → execution classification', () => {
 			).toEqual({ value: 1 });
 		},
 	);
+
+	it('does not start a department workflow while the owner gate is closed', async () => {
+		const run = vi.fn();
+		ownerGate.enabled = false;
+		const context = {
+			...buildContext(run, { departmentWorkflowIds: ['wf-1'] }),
+			agentRun: {
+				agentId: 'agent-1',
+				projectId: 'p1',
+				threadId: 'attempt-1',
+				runId: 'run-1',
+				toolCallId: 'tool-call-1',
+			},
+		} as never;
+
+		await expect(executeWorkflow(workflow, triggerNode, { value: 1 }, context)).rejects.toThrow(
+			'execution ownership is verified',
+		);
+		expect(run).not.toHaveBeenCalled();
+	});
+
+	it('does not dispatch an Engine v2 workflow for a department invocation', async () => {
+		ownerGate.enabled = true;
+		const run = vi.fn();
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		const context = {
+			...buildContext(run, { departmentWorkflowIds: ['wf-1'] }),
+			agentRun: {
+				agentId: 'agent-1',
+				projectId: 'p1',
+				threadId: 'attempt-1',
+				runId: 'run-1',
+				toolCallId: 'tool-call-1',
+			},
+		} as never;
+
+		await expect(
+			executeWorkflow(
+				{ ...workflow, settings: { engineType: 'v2' } } as WorkflowEntity,
+				triggerNode,
+				{ value: 1 },
+				context,
+			),
+		).rejects.toThrow('Engine v2 workflows cannot be used as AI Department workflow capabilities.');
+		expect(invocations.reserve).not.toHaveBeenCalled();
+		expect(run).not.toHaveBeenCalled();
+	});
+
+	it('reserves the child invocation before native dispatch and records owner acceptance', async () => {
+		ownerGate.enabled = true;
+		const run = vi.fn().mockResolvedValue('child-execution-a');
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		const owner = mock<DepartmentWorkflowInvocationOwnerProxy>();
+		const durableInputs = mock<DepartmentWorkflowInvocationInputsProxy>();
+		invocations.reserve.mockResolvedValue({
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputsRef: 'input-ref-a',
+			duplicate: false,
+		});
+		durableInputs.stage.mockResolvedValue(undefined);
+		durableInputs.resolve.mockResolvedValue({ value: 1 });
+		owner.lookup.mockResolvedValue({
+			kind: 'accepted',
+			ownerExecutionRef: 'child-execution-a',
+			actualWorkflowVersion: 'published-v2',
+			childState: 'pending',
+		});
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		Container.set(DepartmentWorkflowInvocationOwnerProxy, owner);
+		Container.set(DepartmentWorkflowInvocationInputsProxy, durableInputs);
+		const workflowWithVersion = { ...workflow, versionId: 'published-v2' } as WorkflowEntity;
+		const context = {
+			...buildContext(run, {
+				departmentWorkflowIds: ['wf-1'],
+				userId: 'user-a',
+				departmentWorkflowCapabilities: [
+					{
+						id: 'capability-a',
+						workflowId: 'wf-1',
+						version: 2,
+						purpose: 'Create a campaign draft',
+						publishedVersionRef: 'published-v2',
+						triggerCompatibilityRef: 'n8n-nodes-base.executeWorkflowTrigger@1.1',
+						inputSchemaFingerprint: 'schema-a',
+					},
+				],
+			}),
+			agentRun: {
+				agentId: 'agent-a',
+				projectId: 'p1',
+				threadId: 'attempt-a',
+				runId: 'parent-execution-a',
+				toolCallId: 'tool-call-a',
+			},
+		} as never;
+
+		await executeWorkflow(workflowWithVersion, triggerNode, { value: 1 }, context);
+
+		expect(invocations.reserve).toHaveBeenCalledWith(
+			{
+				projectId: 'p1',
+				executorId: 'agent-a',
+				attemptId: 'attempt-a',
+			},
+			expect.objectContaining({
+				capabilityId: 'capability-a',
+				capabilityVersion: 2,
+				workflowId: 'wf-1',
+				requestId: 'tool-call-a',
+				expectedWorkflowVersion: 'published-v2',
+			}),
+		);
+		expect(invocations.reserve.mock.invocationCallOrder[0]).toBeLessThan(
+			run.mock.invocationCallOrder[0],
+		);
+		expect(run.mock.calls[0][0].deduplicationKey).toBe('owner-key-a');
+		expect(run.mock.calls[0][0].userId).toBe('user-a');
+		expect(run.mock.calls[0][0].executionData.parentAgentRun.userId).toBe('user-a');
+		expect(durableInputs.resolve).toHaveBeenCalledWith({
+			projectId: 'p1',
+			invocationId: 'invocation-a',
+			inputsRef: 'input-ref-a',
+			inputHash: createHash('sha256').update('{"value":1}').digest('hex'),
+		});
+		expect(durableInputs.resolve.mock.invocationCallOrder[0]).toBeLessThan(
+			run.mock.invocationCallOrder[0],
+		);
+		expect(invocations.accepted).toHaveBeenCalledWith({
+			projectId: 'p1',
+			invocationId: 'invocation-a',
+			ownerExecutionRef: 'child-execution-a',
+			actualWorkflowVersion: 'published-v2',
+			childState: 'pending',
+		});
+		expect(owner.lookup).toHaveBeenCalledWith({
+			projectId: 'p1',
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputHash: createHash('sha256').update('{"value":1}').digest('hex'),
+			expectedWorkflowVersion: 'published-v2',
+		});
+	});
+
+	it('does not acknowledge a department invocation until the native owner confirms it', async () => {
+		ownerGate.enabled = true;
+		const run = vi.fn().mockResolvedValue('child-execution-a');
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		const owner = mock<DepartmentWorkflowInvocationOwnerProxy>();
+		const durableInputs = mock<DepartmentWorkflowInvocationInputsProxy>();
+		invocations.reserve.mockResolvedValue({
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputsRef: 'input-ref-a',
+			duplicate: false,
+		});
+		owner.lookup.mockResolvedValue({ kind: 'absent' });
+		owner.recover.mockResolvedValue({ kind: 'unknown' });
+		durableInputs.stage.mockResolvedValue(undefined);
+		durableInputs.resolve.mockResolvedValue({ value: 1 });
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		Container.set(DepartmentWorkflowInvocationOwnerProxy, owner);
+		Container.set(DepartmentWorkflowInvocationInputsProxy, durableInputs);
+		const context = {
+			...buildContext(run, {
+				departmentWorkflowIds: ['wf-1'],
+				departmentWorkflowCapabilities: [
+					{
+						id: 'capability-a',
+						workflowId: 'wf-1',
+						version: 2,
+						purpose: 'Create a campaign draft',
+						publishedVersionRef: 'published-v2',
+						triggerCompatibilityRef: 'n8n-nodes-base.executeWorkflowTrigger@1.1',
+						inputSchemaFingerprint: 'schema-a',
+					},
+				],
+			}),
+			agentRun: {
+				agentId: 'agent-a',
+				projectId: 'p1',
+				threadId: 'attempt-a',
+				runId: 'parent-execution-a',
+				toolCallId: 'tool-call-a',
+			},
+		} as never;
+
+		await expect(
+			executeWorkflow(
+				{ ...workflow, versionId: 'published-v2' } as WorkflowEntity,
+				triggerNode,
+				{ value: 1 },
+				context,
+			),
+		).rejects.toThrow('The workflow owner has not confirmed queue acceptance.');
+
+		expect(run).toHaveBeenCalledOnce();
+		expect(invocations.accepted).not.toHaveBeenCalled();
+		expect(invocations.unknown).toHaveBeenCalledWith({
+			projectId: 'p1',
+			invocationId: 'invocation-a',
+		});
+	});
+
+	it('records acceptance when replay finds an inactive nonterminal child execution', async () => {
+		ownerGate.enabled = true;
+		const run = vi.fn();
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		const owner = mock<DepartmentWorkflowInvocationOwnerProxy>();
+		invocations.reserve.mockResolvedValue({
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputsRef: 'input-ref-a',
+			duplicate: true,
+		});
+		owner.lookup.mockResolvedValue({
+			kind: 'accepted',
+			ownerExecutionRef: 'child-execution-a',
+			actualWorkflowVersion: 'published-v2',
+			childState: 'running',
+		});
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		Container.set(DepartmentWorkflowInvocationOwnerProxy, owner);
+		Container.set(ExecutionPersistence, {
+			findExecutionIdByDeduplicationKey: vi.fn().mockResolvedValue('child-execution-a'),
+			findSingleExecution: vi.fn().mockResolvedValue({
+				status: 'running',
+				data: {
+					resultData: {
+						metadata: {
+							aiDepartmentProjectId: 'p1',
+							aiDepartmentWorkflowInvocationId: 'invocation-a',
+							aiDepartmentWorkflowVersion: 'published-v2',
+							aiDepartmentWorkflowInputHash: createHash('sha256')
+								.update('{"value":1}')
+								.digest('hex'),
+						},
+					},
+				},
+			}),
+		} as unknown as ExecutionPersistence);
+		const workflowWithVersion = { ...workflow, versionId: 'published-v2' } as WorkflowEntity;
+		const context = {
+			...buildContext(run, {
+				departmentWorkflowIds: ['wf-1'],
+				departmentWorkflowCapabilities: [
+					{
+						id: 'capability-a',
+						workflowId: 'wf-1',
+						version: 2,
+						purpose: 'Create a campaign draft',
+						publishedVersionRef: 'published-v2',
+						triggerCompatibilityRef: 'n8n-nodes-base.executeWorkflowTrigger@1.1',
+						inputSchemaFingerprint: 'schema-a',
+					},
+				],
+			}),
+			agentRun: {
+				agentId: 'agent-a',
+				projectId: 'p1',
+				threadId: 'attempt-a',
+				runId: 'parent-execution-a',
+				toolCallId: 'tool-call-a',
+			},
+		} as never;
+
+		const result = await executeWorkflow(workflowWithVersion, triggerNode, { value: 1 }, context);
+
+		expect(invocations.accepted).toHaveBeenCalledWith({
+			projectId: 'p1',
+			invocationId: 'invocation-a',
+			ownerExecutionRef: 'child-execution-a',
+			actualWorkflowVersion: 'published-v2',
+			childState: 'running',
+		});
+		expect(run).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			executionId: 'child-execution-a',
+			status: 'running',
+			note: expect.stringContaining('already accepted'),
+		});
+	});
+
+	it('does not redispatch a duplicate reservation without verified owner acceptance', async () => {
+		ownerGate.enabled = true;
+		const run = vi.fn();
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		const owner = mock<DepartmentWorkflowInvocationOwnerProxy>();
+		invocations.reserve.mockResolvedValue({
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputsRef: 'input-ref-a',
+			duplicate: true,
+		});
+		owner.lookup.mockResolvedValue({ kind: 'unknown' });
+		owner.recover.mockResolvedValue({ kind: 'unknown' });
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		Container.set(DepartmentWorkflowInvocationOwnerProxy, owner);
+		const context = {
+			...buildContext(run, {
+				departmentWorkflowIds: ['wf-1'],
+				departmentWorkflowCapabilities: [
+					{
+						id: 'capability-a',
+						workflowId: 'wf-1',
+						version: 2,
+						purpose: 'Create a campaign draft',
+						publishedVersionRef: 'published-v2',
+						triggerCompatibilityRef: 'n8n-nodes-base.executeWorkflowTrigger@1.1',
+						inputSchemaFingerprint: 'schema-a',
+					},
+				],
+			}),
+			agentRun: {
+				agentId: 'agent-a',
+				projectId: 'p1',
+				threadId: 'attempt-a',
+				runId: 'parent-execution-a',
+				toolCallId: 'tool-call-a',
+			},
+		} as never;
+
+		await expect(
+			executeWorkflow(
+				{ ...workflow, versionId: 'published-v2' } as WorkflowEntity,
+				triggerNode,
+				{ value: 1 },
+				context,
+			),
+		).rejects.toThrow('child execution is not yet verified');
+		expect(run).not.toHaveBeenCalled();
+		expect(owner.recover).toHaveBeenCalledWith(
+			expect.objectContaining({ invocationId: 'invocation-a', inputHash: expect.any(String) }),
+		);
+	});
+
+	it('replays a duplicate reservation when the native execution row is absent', async () => {
+		ownerGate.enabled = true;
+		const run = vi.fn().mockResolvedValue('child-execution-a');
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		const owner = mock<DepartmentWorkflowInvocationOwnerProxy>();
+		const durableInputs = mock<DepartmentWorkflowInvocationInputsProxy>();
+		invocations.reserve.mockResolvedValue({
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputsRef: 'input-ref-a',
+			duplicate: true,
+		});
+		owner.lookup.mockResolvedValueOnce({ kind: 'absent' }).mockResolvedValueOnce({
+			kind: 'accepted',
+			ownerExecutionRef: 'child-execution-a',
+			actualWorkflowVersion: 'published-v2',
+			childState: 'pending',
+		});
+		durableInputs.stage.mockResolvedValue(undefined);
+		durableInputs.resolve.mockResolvedValue({ value: 1 });
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		Container.set(DepartmentWorkflowInvocationOwnerProxy, owner);
+		Container.set(DepartmentWorkflowInvocationInputsProxy, durableInputs);
+		const context = {
+			...buildContext(run, {
+				departmentWorkflowIds: ['wf-1'],
+				departmentWorkflowCapabilities: [
+					{
+						id: 'capability-a',
+						workflowId: 'wf-1',
+						version: 2,
+						purpose: 'Create a campaign draft',
+						publishedVersionRef: 'published-v2',
+						triggerCompatibilityRef: 'n8n-nodes-base.executeWorkflowTrigger@1.1',
+						inputSchemaFingerprint: 'schema-a',
+					},
+				],
+			}),
+			agentRun: {
+				agentId: 'agent-a',
+				projectId: 'p1',
+				threadId: 'attempt-a',
+				runId: 'parent-execution-a',
+				toolCallId: 'tool-call-a',
+			},
+		} as never;
+
+		await executeWorkflow(
+			{ ...workflow, versionId: 'published-v2' } as WorkflowEntity,
+			triggerNode,
+			{ value: 1 },
+			context,
+		);
+
+		expect(run).toHaveBeenCalledOnce();
+		expect(run.mock.calls[0][0].deduplicationKey).toBe('owner-key-a');
+		expect(invocations.accepted).toHaveBeenCalledWith(
+			expect.objectContaining({ childState: 'pending' }),
+		);
+		expect(owner.recover).not.toHaveBeenCalled();
+	});
+
+	it('marks a reserved child invocation unknown when native dispatch fails', async () => {
+		ownerGate.enabled = true;
+		const run = vi.fn().mockRejectedValue(new Error('runner disconnected'));
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		invocations.reserve.mockResolvedValue({
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputsRef: 'input-ref-a',
+			duplicate: false,
+		});
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		const workflowWithVersion = { ...workflow, versionId: 'published-v2' } as WorkflowEntity;
+		const context = {
+			...buildContext(run, {
+				departmentWorkflowIds: ['wf-1'],
+				departmentWorkflowCapabilities: [
+					{
+						id: 'capability-a',
+						workflowId: 'wf-1',
+						version: 2,
+						purpose: 'Create a campaign draft',
+						publishedVersionRef: 'published-v2',
+						triggerCompatibilityRef: 'n8n-nodes-base.executeWorkflowTrigger@1.1',
+						inputSchemaFingerprint: 'schema-a',
+					},
+				],
+			}),
+			agentRun: {
+				agentId: 'agent-a',
+				projectId: 'p1',
+				threadId: 'attempt-a',
+				runId: 'parent-execution-a',
+				toolCallId: 'tool-call-a',
+			},
+		} as never;
+
+		await expect(
+			executeWorkflow(workflowWithVersion, triggerNode, { value: 1 }, context),
+		).rejects.toThrow('runner disconnected');
+		expect(invocations.unknown).toHaveBeenCalledWith({
+			projectId: 'p1',
+			invocationId: 'invocation-a',
+		});
+		expect(invocations.accepted).not.toHaveBeenCalled();
+	});
 
 	it('passes a foreground abort to workflow stopping and releases the wait', async () => {
 		const controller = new AbortController();
@@ -126,6 +596,81 @@ describe('executeWorkflow → execution classification', () => {
 		controller.abort(new Error('Response stopped'));
 		await expect(pending).rejects.toThrow('Response stopped');
 		expect(stop).toHaveBeenCalledExactlyOnceWith('exec-1', ['wf-1']);
+		finished.resolve(mock<IRun>({ status: 'canceled' }));
+	});
+
+	it('records department cancellation intent before stopping the child execution', async () => {
+		ownerGate.enabled = true;
+		const controller = new AbortController();
+		const started = createDeferredPromise<undefined>();
+		const finished = createDeferredPromise<IRun>();
+		const stop = vi.fn().mockResolvedValue(undefined);
+		const invocations = mock<DepartmentWorkflowInvocationProxy>();
+		const owner = mock<DepartmentWorkflowInvocationOwnerProxy>();
+		const durableInputs = mock<DepartmentWorkflowInvocationInputsProxy>();
+		invocations.reserve.mockResolvedValue({
+			invocationId: 'invocation-a',
+			ownerInvocationKey: 'owner-key-a',
+			inputsRef: 'input-ref-a',
+			duplicate: false,
+		});
+		owner.lookup.mockResolvedValue({
+			kind: 'accepted',
+			ownerExecutionRef: 'child-execution-a',
+			actualWorkflowVersion: 'published-v2',
+			childState: 'running',
+		});
+		durableInputs.stage.mockResolvedValue(undefined);
+		durableInputs.resolve.mockResolvedValue({});
+		Container.set(DepartmentWorkflowInvocationProxy, invocations);
+		Container.set(DepartmentWorkflowInvocationOwnerProxy, owner);
+		Container.set(DepartmentWorkflowInvocationInputsProxy, durableInputs);
+		Container.set(ExecutionService, mock<ExecutionService>({ stop }));
+		const workflowWithVersion = { ...workflow, versionId: 'published-v2' } as WorkflowEntity;
+		const pending = executeWorkflow(workflowWithVersion, triggerNode, {}, {
+			...buildContext(vi.fn().mockResolvedValue('child-execution-a'), {
+				departmentWorkflowIds: ['wf-1'],
+				departmentWorkflowCapabilities: [
+					{
+						id: 'capability-a',
+						workflowId: 'wf-1',
+						version: 2,
+						purpose: 'Create a campaign draft',
+						publishedVersionRef: 'published-v2',
+						triggerCompatibilityRef: 'n8n-nodes-base.executeWorkflowTrigger@1.1',
+						inputSchemaFingerprint: 'schema-a',
+					},
+				],
+				activeExecutions: mock<ActiveExecutions>({
+					has: () => true,
+					getPostExecutePromise: async () => {
+						started.resolve(undefined);
+						return await finished.promise;
+					},
+				}),
+			}),
+			agentRun: {
+				agentId: 'agent-a',
+				projectId: 'p1',
+				threadId: 'attempt-a',
+				runId: 'parent-execution-a',
+				toolCallId: 'tool-call-a',
+			},
+			abortSignal: controller.signal,
+		} as never);
+		await started.promise;
+		controller.abort(new Error('Work cancelled'));
+		await expect(pending).rejects.toThrow('Work cancelled');
+
+		expect(invocations.cancellationRequested).toHaveBeenCalledWith({
+			projectId: 'p1',
+			invocationId: 'invocation-a',
+			ownerExecutionRef: 'child-execution-a',
+		});
+		expect(invocations.cancellationRequested.mock.invocationCallOrder[0]).toBeLessThan(
+			stop.mock.invocationCallOrder[0],
+		);
+		expect(stop).toHaveBeenCalledWith('child-execution-a', ['wf-1']);
 		finished.resolve(mock<IRun>({ status: 'canceled' }));
 	});
 

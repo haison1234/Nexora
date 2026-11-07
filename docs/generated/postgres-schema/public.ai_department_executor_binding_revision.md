@@ -53,6 +53,7 @@ erDiagram
   boolean archived
   timestamp_3__with_time_zone createdAt
   varchar_36_ departmentId FK
+  json expertiseTags
   varchar_36_ id
   varchar_36_ managerMemberId FK
   varchar_128_ name
