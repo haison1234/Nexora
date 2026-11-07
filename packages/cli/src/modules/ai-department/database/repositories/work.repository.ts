@@ -3,7 +3,7 @@ import { Service } from '@n8n/di';
 import { ConflictError, UnexpectedError } from '@n8n/errors';
 import { DataSource, In, IsNull, LessThanOrEqual, type EntityManager } from '@n8n/typeorm';
 import { randomUUID } from 'node:crypto';
-import type { AiDepartmentWorkState } from '@n8n/api-types';
+import type { AiDepartmentWorkflowCapabilitySnapshot, AiDepartmentWorkState } from '@n8n/api-types';
 
 import { Department } from '../entities/department.entity';
 import { DepartmentGoal } from '../entities/department-goal.entity';
@@ -19,8 +19,21 @@ import { WorkEligibility } from '../entities/work-eligibility.entity';
 import { WorkRelationship } from '../entities/work-relationship.entity';
 import { WorkOwnerEventReceipt } from '../entities/work-owner-event-receipt.entity';
 import { WorkReviewDecision } from '../entities/work-review-decision.entity';
+import {
+	WorkReviewPolicyRevision,
+	SubmittedWorkResult,
+	WorkReviewRound,
+	WorkReviewStageDecision,
+} from '../entities/work-review-records.entity';
+import { WorkHandoffIntent } from '../entities/work-handoff-intent.entity';
+import { WorkReleaseIntent } from '../entities/work-release-intent.entity';
+import { aiDepartmentWorkCompletionReportSchema } from '@n8n/api-types';
 import { WorkTransition } from '../entities/work-transition.entity';
+import { WorkflowCapability } from '../entities/workflow-capability.entity';
 import { DepartmentAdmissionFence } from '../entities/department-admission-fence.entity';
+import { CommandReceipt } from '../entities/command-receipt.entity';
+import { WorkHelpRequest } from '../entities/work-help-request.entity';
+import { WorkHelpResponse } from '../entities/work-help-response.entity';
 
 class WorkTable extends BaseRepository<WorkItem> {
 	constructor(dataSource: DataSource, runner: TransactionRunner) {
@@ -65,6 +78,26 @@ export class WorkRepository {
 		return await this.manager(ctx).findOneBy(Department, { id: departmentId, projectId });
 	}
 
+	async findCreateCommandReceipt(
+		projectId: string,
+		actorId: string,
+		requestId: string,
+		ctx: OperationContext = {},
+	) {
+		const receipt = await this.manager(ctx).findOneBy(CommandReceipt, {
+			projectId,
+			actorId,
+			requestId,
+		});
+		if (!receipt) return null;
+		return {
+			operation: receipt.operation,
+			status: receipt.status,
+			payloadHash: receipt.payloadHash,
+			responseJson: receipt.responseJson,
+		};
+	}
+
 	async findMember(
 		projectId: string,
 		departmentId: string,
@@ -76,6 +109,41 @@ export class WorkRepository {
 
 	async findMemberById(projectId: string, memberId: string, ctx: OperationContext = {}) {
 		return await this.manager(ctx).findOneBy(Member, { id: memberId, projectId });
+	}
+
+	async listEnabledWorkflowIds(
+		projectId: string,
+		departmentId: string,
+		memberId: string,
+		ctx: OperationContext = {},
+	) {
+		const rows = await this.manager(ctx).find(WorkflowCapability, {
+			select: { workflowId: true },
+			where: { projectId, departmentId, memberId, enabled: true },
+			order: { createdAt: 'ASC', id: 'ASC' },
+		});
+		return rows.map(({ workflowId }) => workflowId);
+	}
+
+	async listEnabledWorkflowCapabilities(
+		projectId: string,
+		departmentId: string,
+		memberId: string,
+		ctx: OperationContext = {},
+	): Promise<AiDepartmentWorkflowCapabilitySnapshot[]> {
+		return await this.manager(ctx).find(WorkflowCapability, {
+			select: {
+				id: true,
+				workflowId: true,
+				version: true,
+				purpose: true,
+				publishedVersionRef: true,
+				triggerCompatibilityRef: true,
+				inputSchemaFingerprint: true,
+			},
+			where: { projectId, departmentId, memberId, enabled: true },
+			order: { createdAt: 'ASC', id: 'ASC' },
+		});
 	}
 
 	async listGoals(projectId: string, departmentId: string, ctx: OperationContext = {}) {
@@ -202,6 +270,47 @@ export class WorkRepository {
 		});
 	}
 
+	async listChildrenForParent(
+		projectId: string,
+		departmentId: string,
+		parentWorkId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx)
+			.createQueryBuilder(WorkItem, 'child')
+			.innerJoin(
+				WorkRelationship,
+				'parentLink',
+				'parentLink.workId = child.id AND parentLink.projectId = child.projectId AND parentLink.departmentId = child.departmentId',
+			)
+			.where('child.projectId = :projectId', { projectId })
+			.andWhere('child.departmentId = :departmentId', { departmentId })
+			.andWhere('parentLink.relatedWorkId = :parentWorkId', { parentWorkId })
+			.andWhere('parentLink.kind = :kind', { kind: 'parent' })
+			.orderBy('child.createdAt', 'ASC')
+			.addOrderBy('child.id', 'ASC')
+			.getMany();
+	}
+
+	async findLatestAcceptedReport(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+		ctx: OperationContext = {},
+	) {
+		const activity = await this.manager(ctx).findOne(WorkActivity, {
+			where: { projectId, departmentId, workId, kind: 'submit' },
+			order: { workVersion: 'DESC', id: 'DESC' },
+		});
+		if (!activity?.body) return null;
+		try {
+			const parsed = aiDepartmentWorkCompletionReportSchema.safeParse(JSON.parse(activity.body));
+			return parsed.success ? parsed.data : null;
+		} catch {
+			return null;
+		}
+	}
+
 	async listBlockerIds(
 		projectId: string,
 		departmentId: string,
@@ -213,6 +322,41 @@ export class WorkRepository {
 			where: { projectId, departmentId, relatedWorkId: workId, kind: 'blocks' },
 		});
 		return rows.map(({ workId: blockerId }) => blockerId);
+	}
+
+	async findChildrenWaitingOnParent(
+		projectId: string,
+		departmentId: string,
+		childWorkId: string,
+		ctx: OperationContext,
+	) {
+		return await this.manager(ctx)
+			.createQueryBuilder(WorkItem, 'parent')
+			.innerJoin(
+				WorkRelationship,
+				'parentLink',
+				'parentLink.relatedWorkId = parent.id AND parentLink.projectId = parent.projectId AND parentLink.departmentId = parent.departmentId',
+			)
+			.innerJoin(
+				WorkRelationship,
+				'blockerLink',
+				'blockerLink.relatedWorkId = parent.id AND blockerLink.workId = parentLink.workId AND blockerLink.projectId = parent.projectId AND blockerLink.departmentId = parent.departmentId',
+			)
+			.innerJoin(
+				WorkReleaseIntent,
+				'release',
+				'release.workId = parent.id AND release.projectId = parent.projectId AND release.departmentId = parent.departmentId',
+			)
+			.where('parent.projectId = :projectId', { projectId })
+			.andWhere('parent.departmentId = :departmentId', { departmentId })
+			.andWhere('blockerLink.workId = :childWorkId', { childWorkId })
+			.andWhere('parentLink.kind = :parentKind', { parentKind: 'parent' })
+			.andWhere('blockerLink.kind = :blockerKind', { blockerKind: 'blocks' })
+			.andWhere('parent.state = :blockedState', { blockedState: 'blocked' })
+			.andWhere('release.waitingForChildren = :waiting', { waiting: true })
+			.andWhere('release.state = :releaseState', { releaseState: 'confirmed' })
+			.select(['parent.id', 'parent.projectId', 'parent.departmentId'])
+			.getMany();
 	}
 
 	async hasUnresolvedBlockers(
@@ -233,7 +377,7 @@ export class WorkRepository {
 			.andWhere('relationship.relatedWorkId = :workId', { workId })
 			.andWhere('relationship.kind = :kind', { kind: 'blocks' })
 			.andWhere('blocker.state NOT IN (:...terminalStates)', {
-				terminalStates: ['done', 'cancelled'],
+				terminalStates: ['done'],
 			})
 			.getExists();
 	}
@@ -279,6 +423,144 @@ export class WorkRepository {
 	async findClaim(projectId: string, attemptId: string, ctx: OperationContext = {}) {
 		return await this.manager(ctx).findOneBy(WorkClaim, { projectId, attemptId });
 	}
+	async findPendingHandoffForWork(projectId: string, workId: string, ctx: OperationContext = {}) {
+		return await this.manager(ctx).findOne(WorkHandoffIntent, {
+			where: {
+				projectId,
+				workId,
+				state: In(['requested', 'awaiting_stop']),
+			},
+		});
+	}
+	async findPendingHandoffForAttempt(
+		projectId: string,
+		sourceAttemptId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOne(WorkHandoffIntent, {
+			where: {
+				projectId,
+				sourceAttemptId,
+				state: In(['requested', 'awaiting_stop']),
+			},
+		});
+	}
+	async findHandoff(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+		handoffId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkHandoffIntent, {
+			id: handoffId,
+			projectId,
+			departmentId,
+			workId,
+		});
+	}
+	async listPendingHandoffs(take: number, ctx: OperationContext = {}) {
+		return await this.manager(ctx).find(WorkHandoffIntent, {
+			where: { state: 'awaiting_stop' },
+			order: { createdAt: 'ASC', id: 'ASC' },
+			take,
+		});
+	}
+	async saveHandoff(handoff: WorkHandoffIntent, ctx: OperationContext) {
+		const manager = this.manager(ctx);
+		const saved = await manager.save(WorkHandoffIntent, handoff);
+		await manager.increment(
+			Department,
+			{ id: handoff.departmentId, projectId: handoff.projectId },
+			'projectionSequence',
+			1,
+		);
+		return saved;
+	}
+	async cancelPendingHandoffForWork(projectId: string, workId: string, ctx: OperationContext) {
+		const manager = this.manager(ctx);
+		const pending = await manager.findOne(WorkHandoffIntent, {
+			where: {
+				projectId,
+				workId,
+				state: In(['requested', 'awaiting_stop']),
+			},
+		});
+		if (!pending) return;
+		pending.state = 'cancelled';
+		pending.completedAt = new Date();
+		await this.saveHandoff(pending, ctx);
+	}
+	async findPendingReleaseForAttempt(
+		projectId: string,
+		sourceAttemptId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkReleaseIntent, {
+			projectId,
+			sourceAttemptId,
+			state: 'awaiting_stop',
+		});
+	}
+	async findRelease(projectId: string, releaseId: string, ctx: OperationContext = {}) {
+		return await this.manager(ctx).findOneBy(WorkReleaseIntent, { projectId, id: releaseId });
+	}
+	async findConfirmedWaitingRelease(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+		sourceAttemptId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkReleaseIntent, {
+			projectId,
+			departmentId,
+			workId,
+			sourceAttemptId,
+			state: 'confirmed',
+			waitingForChildren: true,
+		});
+	}
+	async listConfirmedWaitingParentReleases(
+		take: number,
+		afterId?: string,
+		ctx: OperationContext = {},
+	) {
+		const query = this.manager(ctx)
+			.createQueryBuilder(WorkReleaseIntent, 'release')
+			.where('release.state = :state', { state: 'confirmed' })
+			.andWhere('release.waitingForChildren = :waiting', { waiting: true });
+		if (afterId) query.andWhere('release.id > :afterId', { afterId });
+		return await query.orderBy('release.id', 'ASC').take(take).getMany();
+	}
+	async findReleaseById(releaseId: string, ctx: OperationContext = {}) {
+		return await this.manager(ctx).findOneBy(WorkReleaseIntent, { id: releaseId });
+	}
+	async markParentContinuationQueued(releaseId: string, ctx: OperationContext) {
+		await this.manager(ctx).update(
+			WorkReleaseIntent,
+			{ id: releaseId, state: 'confirmed', waitingForChildren: true },
+			{ waitingForChildren: false },
+		);
+	}
+	async listPendingReleases(take: number, ctx: OperationContext = {}) {
+		return await this.manager(ctx).find(WorkReleaseIntent, {
+			where: { state: 'awaiting_stop' },
+			order: { createdAt: 'ASC', id: 'ASC' },
+			take,
+		});
+	}
+	async saveRelease(release: WorkReleaseIntent, ctx: OperationContext) {
+		const manager = this.manager(ctx);
+		const saved = await manager.save(WorkReleaseIntent, release);
+		await manager.increment(
+			Department,
+			{ id: release.departmentId, projectId: release.projectId },
+			'projectionSequence',
+			1,
+		);
+		return saved;
+	}
 	async saveClaim(claim: WorkClaim, ctx: OperationContext) {
 		return await this.manager(ctx).save(WorkClaim, claim);
 	}
@@ -306,8 +588,137 @@ export class WorkRepository {
 			skip,
 		});
 	}
+	async findHelpRequestByCommand(
+		projectId: string,
+		initiatingUserId: string | null,
+		requestId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkHelpRequest, {
+			projectId,
+			initiatingUserId: initiatingUserId ?? IsNull(),
+			requestId,
+		});
+	}
+	async findHelpRequest(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+		helpRequestId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkHelpRequest, {
+			projectId,
+			departmentId,
+			workId,
+			id: helpRequestId,
+		});
+	}
+	async findHelpRequestById(projectId: string, helpRequestId: string, ctx: OperationContext = {}) {
+		return await this.manager(ctx).findOneBy(WorkHelpRequest, {
+			projectId,
+			id: helpRequestId,
+		});
+	}
+	async listPendingHelpRequests(take: number, ctx: OperationContext = {}) {
+		return await this.manager(ctx).find(WorkHelpRequest, {
+			where: { state: 'pending_stop' },
+			order: { createdAt: 'ASC', id: 'ASC' },
+			take,
+		});
+	}
+	async listQueuedHelpRequests(take: number, ctx: OperationContext = {}) {
+		return await this.manager(ctx).find(WorkHelpRequest, {
+			where: { state: 'queued' },
+			order: { updatedAt: 'ASC', id: 'ASC' },
+			take,
+		});
+	}
+	async listAnsweredHelpRequests(take: number, ctx: OperationContext = {}) {
+		return await this.manager(ctx).find(WorkHelpRequest, {
+			where: { state: 'answered' },
+			order: { updatedAt: 'ASC', id: 'ASC' },
+			take,
+		});
+	}
+	async listHelpRequestsForWork(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).find(WorkHelpRequest, {
+			where: { projectId, departmentId, workId },
+			order: { createdAt: 'ASC', id: 'ASC' },
+		});
+	}
+	async listHelpAttention(projectId: string, departmentId: string, take: number) {
+		return await this.manager({}).find(WorkHelpRequest, {
+			where: [
+				{ projectId, departmentId, state: 'pending_stop' },
+				{ projectId, departmentId, state: 'queued' },
+				{ projectId, departmentId, state: 'awaiting_answer' },
+				{ projectId, departmentId, state: 'escalating' },
+				{ projectId, departmentId, state: 'failed' },
+			],
+			order: { createdAt: 'ASC', id: 'ASC' },
+			take,
+		});
+	}
+	async saveHelpRequest(request: WorkHelpRequest, ctx: OperationContext = {}) {
+		const manager = this.manager(ctx);
+		const saved = await manager.save(WorkHelpRequest, request);
+		await manager.increment(
+			Department,
+			{ id: request.departmentId, projectId: request.projectId },
+			'projectionSequence',
+			1,
+		);
+		return saved;
+	}
+	async findHelpResponse(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+		helpRequestId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkHelpResponse, {
+			projectId,
+			departmentId,
+			workId,
+			helpRequestId,
+		});
+	}
+	async saveHelpResponse(response: WorkHelpResponse, ctx: OperationContext = {}) {
+		const manager = this.manager(ctx);
+		const saved = await manager.save(WorkHelpResponse, response);
+		await manager.increment(
+			Department,
+			{ id: response.departmentId, projectId: response.projectId },
+			'projectionSequence',
+			1,
+		);
+		return saved;
+	}
+	async listDepartmentActivity(
+		projectId: string,
+		departmentId: string,
+		take: number,
+		skip: number,
+	) {
+		return await this.manager({}).findAndCount(WorkActivity, {
+			where: { projectId, departmentId },
+			order: { createdAt: 'DESC', id: 'DESC' },
+			take,
+			skip,
+		});
+	}
 	async saveWakeIntent(intent: WorkWakeIntent, ctx: OperationContext) {
 		return await this.manager(ctx).save(WorkWakeIntent, intent);
+	}
+	async findWakeIntent(projectId: string, departmentId: string, workId: string) {
+		return await this.manager({}).findOneBy(WorkWakeIntent, { projectId, departmentId, workId });
 	}
 	async findWakeLane(
 		projectId: string,
@@ -325,6 +736,116 @@ export class WorkRepository {
 	}
 	async saveWakeLane(lane: WorkWakeLane, ctx: OperationContext) {
 		return await this.manager(ctx).save(WorkWakeLane, lane);
+	}
+	async claimWakeLaneForAttempt(
+		lane: Pick<WorkWakeLane, 'projectId' | 'memberId' | 'actorId' | 'bindingVersion'>,
+		attemptId: string,
+		ctx: OperationContext,
+	) {
+		const manager = this.manager(ctx);
+		const current = await manager.findOneBy(WorkWakeLane, lane);
+		if (!current) throw new ConflictError('Work wake lane is no longer available.');
+		if (current.activeAttemptId) {
+			const activeAttempt = await manager.findOneBy(WorkAttempt, {
+				id: current.activeAttemptId,
+				projectId: lane.projectId,
+			});
+			if (!activeAttempt || activeAttempt.phase !== 'terminal') {
+				throw new ConflictError('Another work item is already running in this lane.');
+			}
+			await manager.update(
+				WorkWakeLane,
+				{ ...lane, activeAttemptId: current.activeAttemptId },
+				{
+					activeAttemptId: null,
+					state: current.generation > current.acknowledgedGeneration ? 'pending' : 'delivered',
+					updatedAt: new Date(),
+				},
+			);
+		}
+		const existingAttempt = await manager.findOne(WorkAttempt, {
+			where: {
+				projectId: lane.projectId,
+				memberId: lane.memberId,
+				initiatingUserId: lane.actorId,
+				bindingVersion: lane.bindingVersion,
+				phase: In(['dispatching', 'active', 'suspended', 'stopping']),
+			},
+		});
+		if (existingAttempt)
+			throw new ConflictError('Another work item is already running in this lane.');
+		const now = new Date();
+		const result = await manager.update(
+			WorkWakeLane,
+			{ ...lane, activeAttemptId: IsNull() },
+			{
+				activeAttemptId: attemptId,
+				acknowledgedGeneration: current.generation,
+				updatedAt: now,
+			},
+		);
+		if (result.affected !== 1)
+			throw new ConflictError('Another work item is already running in this lane.');
+		return current.generation;
+	}
+	async acknowledgeWakeLaneForAttempt(
+		attemptId: string,
+		state: 'accepted' | 'unknown' | 'rejected',
+		ctx: OperationContext,
+	) {
+		const manager = this.manager(ctx);
+		const lane = await manager.findOneBy(WorkWakeLane, { activeAttemptId: attemptId });
+		if (!lane || lane.generation !== lane.acknowledgedGeneration) return;
+		await manager.update(
+			WorkWakeLane,
+			{
+				projectId: lane.projectId,
+				memberId: lane.memberId,
+				actorId: lane.actorId,
+				bindingVersion: lane.bindingVersion,
+				activeAttemptId: attemptId,
+				generation: lane.generation,
+				acknowledgedGeneration: lane.acknowledgedGeneration,
+			},
+			{ state, updatedAt: new Date() },
+		);
+	}
+	async releaseWakeLaneForAttempt(attemptId: string, ctx: OperationContext) {
+		const manager = this.manager(ctx);
+		const lane = await manager.findOneBy(WorkWakeLane, { activeAttemptId: attemptId });
+		if (!lane) return;
+		await manager.update(
+			WorkWakeLane,
+			{
+				projectId: lane.projectId,
+				memberId: lane.memberId,
+				actorId: lane.actorId,
+				bindingVersion: lane.bindingVersion,
+				activeAttemptId: attemptId,
+			},
+			{ activeAttemptId: null, updatedAt: new Date() },
+		);
+		await manager.update(
+			WorkWakeLane,
+			{
+				projectId: lane.projectId,
+				memberId: lane.memberId,
+				actorId: lane.actorId,
+				bindingVersion: lane.bindingVersion,
+				activeAttemptId: IsNull(),
+				generation: lane.generation,
+				acknowledgedGeneration: lane.acknowledgedGeneration,
+			},
+			{
+				state:
+					lane.generation > lane.acknowledgedGeneration
+						? 'pending'
+						: lane.state === 'rejected'
+							? 'rejected'
+							: 'delivered',
+				updatedAt: new Date(),
+			},
+		);
 	}
 	async nextEligibilityGeneration(workId: string, ctx: OperationContext) {
 		const row = await this.manager(ctx)
@@ -502,9 +1023,18 @@ export class WorkRepository {
 		});
 	}
 
+	async listSuspendedAttempts(projectId: string, departmentId: string, ctx: OperationContext = {}) {
+		const [attempts, count] = await this.manager(ctx).findAndCount(WorkAttempt, {
+			where: { projectId, departmentId, phase: 'suspended' },
+			order: { updatedAt: 'DESC', id: 'ASC' },
+			take: 100,
+		});
+		return { attempts, hasMore: count > attempts.length };
+	}
+
 	async listReconciliationCandidates(take: number, ctx: OperationContext = {}) {
 		return await this.manager(ctx).find(WorkAttempt, {
-			where: { phase: In(['dispatching', 'active', 'suspended']) },
+			where: { phase: In(['dispatching', 'active', 'suspended', 'stopping']) },
 			order: { updatedAt: 'ASC', id: 'ASC' },
 			take,
 		});
@@ -525,7 +1055,7 @@ export class WorkRepository {
 			attemptId: string;
 			expectedWorkVersion: number;
 			sequence: string;
-			phase: 'active' | 'suspended' | 'terminal';
+			phase: 'active' | 'suspended' | 'stopping' | 'terminal';
 			outcome?: 'succeeded' | 'failed' | 'cancelled';
 			resultReference?: string;
 			safeSummary?: string;
@@ -669,7 +1199,7 @@ export class WorkRepository {
 			work.currentAttemptId !== attempt.id ||
 			work.version !== input.expectedWorkVersion ||
 			work.state !== input.nextState ||
-			!['dispatching', 'active', 'suspended'].includes(attempt.phase) ||
+			!['dispatching', 'active', 'suspended', 'stopping'].includes(attempt.phase) ||
 			!['ready', 'running', 'blocked'].includes(work.state)
 		) {
 			throw new ConflictError('Work item has no stoppable active attempt.');
@@ -776,7 +1306,7 @@ export class WorkRepository {
 		}
 		const activeAttempt = await manager.findOneBy(WorkAttempt, {
 			workId: work.id,
-			phase: In(['dispatching', 'active', 'suspended']),
+			phase: In(['dispatching', 'active', 'suspended', 'stopping']),
 		});
 		if (activeAttempt) throw new ConflictError('Work item already has an active attempt.');
 
@@ -983,6 +1513,71 @@ export class WorkRepository {
 		return await this.manager(ctx).save(WorkReviewDecision, decision);
 	}
 
+	async saveReviewPolicyRevision(revision: WorkReviewPolicyRevision, ctx: OperationContext = {}) {
+		return await this.manager(ctx).save(WorkReviewPolicyRevision, revision);
+	}
+
+	async findReviewPolicyRevision(
+		projectId: string,
+		workId: string,
+		revision: number,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkReviewPolicyRevision, {
+			projectId,
+			workId,
+			revision,
+		});
+	}
+
+	async saveSubmittedResult(result: SubmittedWorkResult, ctx: OperationContext = {}) {
+		return await this.manager(ctx).save(SubmittedWorkResult, result);
+	}
+
+	async findSubmittedResult(
+		projectId: string,
+		workId: string,
+		resultId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(SubmittedWorkResult, {
+			projectId,
+			workId,
+			id: resultId,
+		});
+	}
+
+	async saveReviewRound(round: WorkReviewRound, ctx: OperationContext = {}) {
+		return await this.manager(ctx).save(WorkReviewRound, round);
+	}
+
+	async findReviewRound(
+		projectId: string,
+		workId: string,
+		attemptId: string,
+		ctx: OperationContext = {},
+	) {
+		return await this.manager(ctx).findOneBy(WorkReviewRound, { projectId, workId, attemptId });
+	}
+
+	async saveReviewStageDecision(decision: WorkReviewStageDecision, ctx: OperationContext = {}) {
+		return await this.manager(ctx).save(WorkReviewStageDecision, decision);
+	}
+
+	async listWorkReviewDecisions(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+		ctx: OperationContext = {},
+	) {
+		const where = { projectId, departmentId, workId };
+		const [legacy, staged] = await Promise.all([
+			this.manager(ctx).find(WorkReviewDecision, { where, order: { createdAt: 'ASC' } }),
+			this.manager(ctx).find(WorkReviewStageDecision, { where, order: { createdAt: 'ASC' } }),
+		]);
+		return { legacy, staged };
+	}
+
 	async listActiveWork(
 		projectId: string,
 		departmentId: string,
@@ -1000,7 +1595,7 @@ export class WorkRepository {
 			.where('work.projectId = :projectId', { projectId })
 			.andWhere('work.departmentId = :departmentId', { departmentId })
 			.andWhere('(work.state NOT IN (:...terminalStates) OR attempt.phase IN (:...activePhases))', {
-				activePhases: ['dispatching', 'active', 'suspended'],
+				activePhases: ['dispatching', 'active', 'suspended', 'stopping'],
 				terminalStates: ['done', 'cancelled'],
 			});
 		if (memberId) query.andWhere('work.assigneeMemberId = :memberId', { memberId });

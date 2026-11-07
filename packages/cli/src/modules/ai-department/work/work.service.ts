@@ -1,17 +1,29 @@
 import {
+	aiDepartmentReviewStageSchema,
 	aiDepartmentGoalDtoSchema,
 	aiDepartmentAttemptCommandResultSchema,
 	aiDepartmentCancelWorkResultSchema,
 	aiDepartmentReviewResultSchema,
+	aiDepartmentWorkReviewReopenResultSchema,
+	aiDepartmentWorkActivityResultSchema,
+	aiDepartmentWorkCompletionReportSchema,
 	aiDepartmentWorkItemDtoSchema,
+	createAiDepartmentWorkActivitySchema,
 	aiDepartmentWorkRelationshipDtoSchema,
 	type AiDepartmentGoalDto,
 	type AiDepartmentAttemptCommandResult,
 	type AiDepartmentCancelWorkResult,
+	type AiDepartmentWorkActivityResult,
+	type AiDepartmentWorkCompletionReport,
 	type AiDepartmentReviewResult,
+	type AiDepartmentWorkReviewReopenResult,
 	type AiDepartmentWorkAttemptDto,
+	type AiDepartmentWorkReviewDecisionDto,
 	type AiDepartmentWorkItemDto,
+	type AiDepartmentWorkClaimSummaryDto,
+	type AiDepartmentWorkWakeStatus,
 	type AiDepartmentWorkRelationshipDto,
+	type AiDepartmentWorkflowCapabilitySnapshot,
 	type AiDepartmentWorkState,
 	CreateAiDepartmentGoalDto,
 	CreateAiDepartmentWorkDto,
@@ -21,12 +33,15 @@ import {
 	CreateAiDepartmentWorkRelationshipDto,
 	DeleteAiDepartmentWorkRelationshipDto,
 	ReviewAiDepartmentWorkDto,
+	ReopenAiDepartmentWorkReviewDto,
+	CreateAiDepartmentWorkActivityDto,
 } from '@n8n/api-types';
 import { TransactionRunner, type OperationContext } from '@n8n/db';
 import { Logger } from '@n8n/backend-common';
 import { Service } from '@n8n/di';
 import { ConflictError, ForbiddenError, NotFoundError, UserError } from '@n8n/errors';
 import { createHash, randomUUID } from 'node:crypto';
+import { z } from 'zod';
 
 import { CommandReceipt } from '../database/entities/command-receipt.entity';
 import { DepartmentGoal } from '../database/entities/department-goal.entity';
@@ -35,6 +50,11 @@ import { WorkTransition } from '../database/entities/work-transition.entity';
 import { WorkAttempt } from '../database/entities/work-attempt.entity';
 import { WorkDispatchIntent } from '../database/entities/work-dispatch-intent.entity';
 import { WorkReviewDecision } from '../database/entities/work-review-decision.entity';
+import {
+	WorkReviewPolicyRevision,
+	WorkReviewRound,
+	WorkReviewStageDecision,
+} from '../database/entities/work-review-records.entity';
 import { WorkRelationship } from '../database/entities/work-relationship.entity';
 import { DirectoryChange } from '../database/entities/directory-change.entity';
 import { DirectoryRepository } from '../database/repositories/directory.repository';
@@ -46,6 +66,9 @@ import { WorkEligibility } from '../database/entities/work-eligibility.entity';
 import { WorkActivity } from '../database/entities/work-activity.entity';
 import { DepartmentExecutorProxy } from './executor.contracts';
 import type { DepartmentAttemptContext } from './executor.contracts';
+import { AI_DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED } from '../workflow/workflow-invocation-gate';
+import { WorkReleaseService } from './work-release.service';
+import { AiDepartmentOperationsBroadcaster } from '../operations-broadcaster.service';
 
 type ReservedWorkDispatch = {
 	result: AiDepartmentAttemptCommandResult;
@@ -100,6 +123,20 @@ function toWorkRelationshipDto(relationship: WorkRelationship): AiDepartmentWork
 	};
 }
 
+/** Older submissions can store plain text, so a body that is not a report yields null. */
+function completionReportOf(entry: {
+	kind: string;
+	body: string | null;
+}): AiDepartmentWorkCompletionReport | null {
+	if (entry.kind !== 'submit' || !entry.body) return null;
+	try {
+		const parsed = aiDepartmentWorkCompletionReportSchema.safeParse(JSON.parse(entry.body));
+		return parsed.success ? parsed.data : null;
+	} catch {
+		return null;
+	}
+}
+
 @Service()
 export class WorkService {
 	constructor(
@@ -108,7 +145,19 @@ export class WorkService {
 		private readonly repository: WorkRepository,
 		private readonly txRunner: TransactionRunner,
 		private readonly executor: DepartmentExecutorProxy,
+		private readonly releases: WorkReleaseService,
+		private readonly operationsBroadcaster: AiDepartmentOperationsBroadcaster,
 	) {}
+
+	private async runAndNotify<T>(
+		projectId: string,
+		departmentId: string,
+		operation: () => Promise<T>,
+	): Promise<T> {
+		const result = await operation();
+		await this.operationsBroadcaster.notifyCurrent(projectId, departmentId);
+		return result;
+	}
 
 	async startWork(
 		projectId: string,
@@ -144,6 +193,24 @@ export class WorkService {
 				throw new ConflictError(
 					`Only ${requiredState} work can be ${retry ? 'retried' : 'started'}.`,
 				);
+			if (retry && work.currentAttemptId) {
+				const pendingRelease = await this.repository.findPendingReleaseForAttempt(
+					projectId,
+					work.currentAttemptId,
+					ctx,
+				);
+				if (pendingRelease) {
+					throw new ConflictError('The previous owner run must stop before work can be retried.');
+				}
+				const previousAttempt = await this.repository.findAttempt(
+					projectId,
+					work.currentAttemptId,
+					ctx,
+				);
+				if (previousAttempt && previousAttempt.phase !== 'terminal') {
+					throw new ConflictError('The previous owner run must stop before work can be retried.');
+				}
+			}
 			if (await this.repository.hasUnresolvedBlockers(projectId, departmentId, workId, ctx)) {
 				throw new ConflictError('Resolve blocking work before starting this item.');
 			}
@@ -201,6 +268,38 @@ export class WorkService {
 					),
 				};
 			}
+			if (
+				eligibility.memberId !== member.id ||
+				eligibility.actorId !== actorId ||
+				eligibility.bindingVersion !== binding.version
+			) {
+				eligibility.state = 'cancelled';
+				eligibility.consumedAt = new Date();
+				await this.repository.saveEligibility(eligibility, ctx);
+				if (fromWake) {
+					const result: AiDepartmentAttemptCommandResult = {
+						work: toWorkDto(work),
+						attemptId: null,
+						dispatchState: 'rejected',
+					};
+					await this.directory.saveReceipt(
+						Object.assign(new CommandReceipt(), {
+							id: randomUUID(),
+							projectId,
+							actorId,
+							requestId: dto.requestId,
+							payloadHash: hash,
+							operation,
+							status: 'completed',
+							responseJson: JSON.stringify(result),
+							createdAt: new Date(),
+						}),
+						ctx,
+					);
+					return { result };
+				}
+				throw new ConflictError('Work assignment or executor binding changed. Retry the command.');
+			}
 			const resolution = await this.executor.resolve({
 				actorId,
 				projectId,
@@ -233,6 +332,15 @@ export class WorkService {
 
 			const attemptId = randomUUID();
 			const dispatchKey = randomUUID();
+			const workflowCapabilities = AI_DEPARTMENT_WORKFLOW_INVOCATIONS_ENABLED
+				? await this.repository.listEnabledWorkflowCapabilities(
+						projectId,
+						departmentId,
+						member.id,
+						ctx,
+					)
+				: [];
+			const workflowIds = workflowCapabilities.map(({ workflowId }) => workflowId);
 			const attempt = Object.assign(new WorkAttempt(), {
 				id: attemptId,
 				projectId,
@@ -245,7 +353,16 @@ export class WorkService {
 				provider: binding.provider,
 				executorId: binding.executorId,
 				reviewPolicy: work.reviewPolicy,
+				reviewStagesJson: work.reviewStagesJson,
+				reviewPolicyRevision: work.reviewPolicyRevision,
+				reviewPolicyRevisionId: work.reviewPolicyRevisionId,
+				submittedResultId: null,
+				reviewRoundId: null,
+				reviewRoundStatus: null,
+				reviewRoundClosedAt: null,
 				dispatchKey,
+				workflowIdsJson: JSON.stringify(workflowIds),
+				workflowCapabilitiesJson: JSON.stringify(workflowCapabilities),
 				ownerExecutionRef: null,
 				phase: 'dispatching',
 				lastOwnerSequence: '0',
@@ -266,6 +383,16 @@ export class WorkService {
 				acknowledgmentReference: null,
 				leaseUntil: null,
 			});
+			await this.repository.claimWakeLaneForAttempt(
+				{
+					projectId,
+					memberId: member.id,
+					actorId,
+					bindingVersion: binding.version,
+				},
+				attemptId,
+				ctx,
+			);
 			// Dispatch reserves a wake. The Agent claim starts business work.
 			const nextState = work.state;
 			const saved = await this.repository.reserveAttempt(
@@ -313,12 +440,15 @@ export class WorkService {
 					executorId: binding.executorId,
 					bindingVersion: binding.version,
 					dispatchKey,
+					workflowIds,
+					workflowCapabilities,
 					instruction: work.instruction,
 					reviewPolicy: work.reviewPolicy,
 					workVersion: saved.work.version,
 				},
 			};
 		});
+		await this.operationsBroadcaster.notifyCurrent(projectId, departmentId);
 
 		const dispatchContext = reservation.context;
 		if (!dispatchContext) return reservation.result;
@@ -328,7 +458,7 @@ export class WorkService {
 		} catch {
 			dispatchResult = { kind: 'unknown' };
 		}
-		return await this.txRunner.run({}, async (ctx) => {
+		const result = await this.txRunner.run({}, async (ctx) => {
 			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
 			const savedWork = await this.repository.recordDispatchResult(
 				{
@@ -342,6 +472,14 @@ export class WorkService {
 				},
 				ctx,
 			);
+			await this.repository.acknowledgeWakeLaneForAttempt(
+				dispatchContext.attemptId,
+				dispatchResult.kind,
+				ctx,
+			);
+			if (dispatchResult.kind === 'rejected') {
+				await this.repository.releaseWakeLaneForAttempt(dispatchContext.attemptId, ctx);
+			}
 			const result: AiDepartmentAttemptCommandResult = {
 				work: toWorkDto(savedWork),
 				attemptId: dispatchContext.attemptId,
@@ -354,6 +492,8 @@ export class WorkService {
 			}
 			return result;
 		});
+		await this.operationsBroadcaster.notifyCurrent(projectId, departmentId);
+		return result;
 	}
 
 	async cancelWork(
@@ -386,7 +526,8 @@ export class WorkService {
 				? await this.repository.findAttempt(projectId, work.currentAttemptId, ctx)
 				: null;
 			const hasActiveAttempt =
-				attempt !== null && ['dispatching', 'active', 'suspended'].includes(attempt.phase);
+				attempt !== null &&
+				['dispatching', 'active', 'suspended', 'stopping'].includes(attempt.phase);
 			if (!hasActiveAttempt) {
 				const fromState = work.state;
 				work.state = transitionWorkState(work.state, 'cancel', false);
@@ -429,6 +570,7 @@ export class WorkService {
 				return { result };
 			}
 			if (!attempt) throw new ConflictError('Active work attempt no longer exists.');
+			await this.repository.cancelPendingHandoffForWork(projectId, workId, ctx);
 
 			const access = await this.executor.resolve({
 				actorId,
@@ -476,6 +618,7 @@ export class WorkService {
 			}
 			return { result, attempt: saved.attempt };
 		});
+		await this.operationsBroadcaster.notifyCurrent(projectId, departmentId);
 
 		if (!reserved.attempt) return reserved.result;
 		return await this.issueStopRequest(
@@ -519,6 +662,8 @@ export class WorkService {
 				attemptId: attempt.id,
 				ownerExecutionRef,
 				commandId,
+				reason: 'cancel',
+				authorityContext: { kind: 'department-control-plane', commandId, reason: 'cancel' },
 			});
 		} catch {
 			return pendingResult;
@@ -533,59 +678,71 @@ export class WorkService {
 		attempt: WorkAttempt,
 		ownerExecutionRef: string,
 	): Promise<AiDepartmentCancelWorkResult> {
-		return await this.txRunner.run({}, async (ctx) => {
-			const work = await this.repository.findWork(
-				projectId,
-				attempt.departmentId,
-				attempt.workId,
-				ctx,
-			);
-			if (!work || work.currentAttemptId !== attempt.id) {
-				throw new ConflictError('Cancellation no longer matches the current work attempt.');
-			}
-			const currentAttempt = await this.repository.findAttempt(projectId, attempt.id, ctx);
-			if (!currentAttempt) throw new ConflictError('Work attempt no longer exists.');
-			const terminalState = ['review', 'done', 'cancelled'].includes(work.state)
-				? work.state
-				: transitionWorkState(work.state, 'cancellation_confirmed', true);
-			const sequence = (BigInt(currentAttempt.lastOwnerSequence) + 1n).toString();
-			await this.repository.acquireAdmissionFence(attempt.projectId, attempt.departmentId, ctx);
-			const saved = await this.repository.applyOwnerSnapshot(
-				{
-					projectId,
-					departmentId: attempt.departmentId,
-					workId: attempt.workId,
-					attemptId: attempt.id,
-					expectedWorkVersion: work.version,
-					sequence,
-					phase: 'terminal',
-					outcome: 'cancelled',
-					resultReference: ownerExecutionRef,
-					toState: terminalState,
-					actorId: attempt.executorId,
-				},
-				ctx,
-			);
-			const result: AiDepartmentCancelWorkResult = {
-				work: toWorkDto(saved),
-				attemptId: attempt.id,
-				cancelRequested: true,
-				cancellationPending: false,
-			};
-			if (currentAttempt.cancelRequestId) {
-				const receipt = await this.directory.findReceipt(
-					projectId,
-					actorId,
-					currentAttempt.cancelRequestId,
-					ctx,
-				);
-				if (receipt) {
-					receipt.responseJson = JSON.stringify(result);
-					await this.directory.saveReceipt(receipt, ctx);
-				}
-			}
-			return result;
-		});
+		return await this.runAndNotify(
+			projectId,
+			attempt.departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					const work = await this.repository.findWork(
+						projectId,
+						attempt.departmentId,
+						attempt.workId,
+						ctx,
+					);
+					if (!work || work.currentAttemptId !== attempt.id) {
+						throw new ConflictError('Cancellation no longer matches the current work attempt.');
+					}
+					const currentAttempt = await this.repository.findAttempt(projectId, attempt.id, ctx);
+					if (!currentAttempt) throw new ConflictError('Work attempt no longer exists.');
+					const terminalState = ['review', 'done', 'cancelled'].includes(work.state)
+						? work.state
+						: transitionWorkState(work.state, 'cancellation_confirmed', true);
+					const sequence = (BigInt(currentAttempt.lastOwnerSequence) + 1n).toString();
+					await this.repository.acquireAdmissionFence(attempt.projectId, attempt.departmentId, ctx);
+					const saved = await this.repository.applyOwnerSnapshot(
+						{
+							projectId,
+							departmentId: attempt.departmentId,
+							workId: attempt.workId,
+							attemptId: attempt.id,
+							expectedWorkVersion: work.version,
+							sequence,
+							phase: 'terminal',
+							outcome: 'cancelled',
+							resultReference: ownerExecutionRef,
+							toState: terminalState,
+							actorId: attempt.executorId,
+						},
+						ctx,
+					);
+					const updatedAttempt = await this.repository.findAttempt(projectId, attempt.id, ctx);
+					if (updatedAttempt?.phase === 'terminal') {
+						await this.repository.releaseWakeLaneForAttempt(attempt.id, ctx);
+					}
+					if (updatedAttempt?.phase === 'terminal') {
+						await this.resumeParentsAfterChildTerminal(saved, ctx);
+					}
+					const result: AiDepartmentCancelWorkResult = {
+						work: toWorkDto(saved),
+						attemptId: attempt.id,
+						cancelRequested: true,
+						cancellationPending: false,
+					};
+					if (currentAttempt.cancelRequestId) {
+						const receipt = await this.directory.findReceipt(
+							projectId,
+							actorId,
+							currentAttempt.cancelRequestId,
+							ctx,
+						);
+						if (receipt) {
+							receipt.responseJson = JSON.stringify(result);
+							await this.directory.saveReceipt(receipt, ctx);
+						}
+					}
+					return result;
+				}),
+		);
 	}
 
 	async reconcileAttempts(signal?: AbortSignal): Promise<number> {
@@ -617,7 +774,13 @@ export class WorkService {
 						if (!result.cancellationPending) reconciled++;
 					}
 				}
-				if (await this.reconcileAttempt(candidate)) reconciled++;
+				if (await this.reconcileAttempt(candidate)) {
+					reconciled++;
+					await this.operationsBroadcaster.notifyCurrent(
+						candidate.projectId,
+						candidate.departmentId,
+					);
+				}
 			} catch (error) {
 				if (!(error instanceof ConflictError)) throw error;
 			}
@@ -653,7 +816,9 @@ export class WorkService {
 				await this.repository.markWakeDelivered(wake.workId, wake.requestId);
 			} catch (error) {
 				// A competing coordinator start already owns the attempt slot.
-				await this.repository.deferWake(wake.workId, wake.requestId);
+				if (!(error instanceof ConflictError)) {
+					await this.repository.deferWake(wake.workId, wake.requestId);
+				}
 				if (!(error instanceof ConflictError || error instanceof ForbiddenError))
 					this.logger.warn('Department wake delivery failed.', { workId: wake.workId });
 			}
@@ -667,6 +832,22 @@ export class WorkService {
 			attempt.workId,
 		);
 		if (!work || work.currentAttemptId !== attempt.id) return false;
+		const binding = await this.directory.findBinding(attempt.projectId, attempt.memberId);
+		let authorityRevoked =
+			!binding ||
+			binding.version !== attempt.bindingVersion ||
+			binding.executorId !== attempt.executorId ||
+			binding.provider !== attempt.provider;
+		if (!authorityRevoked) {
+			const resolution = await this.executor.resolve({
+				actorId: attempt.initiatingUserId,
+				projectId: attempt.projectId,
+				memberId: attempt.memberId,
+				executorId: attempt.executorId,
+				bindingVersion: attempt.bindingVersion,
+			});
+			authorityRevoked = !resolution.authorized;
+		}
 		let ownerExecutionRef = attempt.ownerExecutionRef;
 		if (!ownerExecutionRef) {
 			let lookup = await this.executor.lookup({
@@ -676,13 +857,10 @@ export class WorkService {
 				attemptId: attempt.id,
 				dispatchKey: attempt.dispatchKey,
 			});
+			if (lookup.kind === 'absent' && authorityRevoked) {
+				lookup = { kind: 'rejected', reason: 'Execution authority was revoked.' };
+			}
 			if (lookup.kind === 'absent' && !attempt.cancelRequestedAt) {
-				const binding = await this.directory.findBinding(attempt.projectId, attempt.memberId);
-				if (
-					binding?.version !== attempt.bindingVersion ||
-					binding.executorId !== attempt.executorId
-				)
-					return false;
 				lookup = await this.executor.dispatch({
 					actorId: attempt.initiatingUserId,
 					projectId: attempt.projectId,
@@ -693,6 +871,10 @@ export class WorkService {
 					executorId: attempt.executorId,
 					bindingVersion: attempt.bindingVersion,
 					dispatchKey: attempt.dispatchKey,
+					workflowIds: JSON.parse(attempt.workflowIdsJson) as string[],
+					workflowCapabilities: JSON.parse(
+						attempt.workflowCapabilitiesJson,
+					) as AiDepartmentWorkflowCapabilitySnapshot[],
 					instruction: work.instruction,
 					reviewPolicy: attempt.reviewPolicy,
 				});
@@ -714,6 +896,8 @@ export class WorkService {
 						},
 						ctx,
 					);
+					await this.repository.acknowledgeWakeLaneForAttempt(attempt.id, 'rejected', ctx);
+					await this.repository.releaseWakeLaneForAttempt(attempt.id, ctx);
 				});
 				return true;
 			}
@@ -735,9 +919,30 @@ export class WorkService {
 					},
 					ctx,
 				);
+				await this.repository.acknowledgeWakeLaneForAttempt(attempt.id, 'accepted', ctx);
 			});
 		}
 		if (!ownerExecutionRef) return false;
+		if (authorityRevoked) {
+			try {
+				await this.executor.requestStop({
+					actorId: attempt.initiatingUserId,
+					projectId: attempt.projectId,
+					executorId: attempt.executorId,
+					attemptId: attempt.id,
+					ownerExecutionRef,
+					commandId: attempt.id,
+					reason: 'authority-revoked',
+					authorityContext: {
+						kind: 'department-control-plane',
+						commandId: attempt.id,
+						reason: 'authority-revoked',
+					},
+				});
+			} catch {
+				// The authority mismatch causes the reconciler to retry this stop.
+			}
+		}
 		const snapshot = await this.executor.snapshot({
 			actorId: attempt.initiatingUserId,
 			projectId: attempt.projectId,
@@ -751,6 +956,10 @@ export class WorkService {
 		if (!work || work.currentAttemptId !== attempt.id) return false;
 		const snapshotWork = work;
 		let toState = work.state;
+		const missingSubmittedResult =
+			snapshot.phase === 'terminal' &&
+			snapshot.result?.outcome === 'succeeded' &&
+			!(await this.repository.hasSubmittedResult(attempt.projectId, attempt.workId, attempt.id));
 		if (
 			snapshot.phase === 'terminal' &&
 			snapshot.result &&
@@ -781,9 +990,11 @@ export class WorkService {
 					phase: snapshotPhase,
 					...(snapshot.result
 						? {
-								outcome: snapshot.result.outcome,
+								outcome: missingSubmittedResult ? 'failed' : snapshot.result.outcome,
 								resultReference: snapshot.result.reference,
-								safeSummary: snapshot.result.safeSummary,
+								safeSummary: missingSubmittedResult
+									? 'Agent run ended without a submitted result.'
+									: snapshot.result.safeSummary,
 							}
 						: {}),
 					toState,
@@ -791,6 +1002,13 @@ export class WorkService {
 				},
 				ctx,
 			);
+			const updatedAttempt = await this.repository.findAttempt(attempt.projectId, attempt.id, ctx);
+			if (updatedAttempt?.phase === 'terminal') {
+				await this.repository.releaseWakeLaneForAttempt(attempt.id, ctx);
+			}
+			if (updatedAttempt?.phase === 'terminal') {
+				await this.resumeParentsAfterChildTerminal(saved, ctx);
+			}
 			if (snapshot.phase === 'terminal' && snapshot.result?.outcome === 'cancelled') {
 				const currentAttempt = await this.repository.findAttempt(
 					attempt.projectId,
@@ -880,6 +1098,49 @@ export class WorkService {
 		return toGoalDto(goal);
 	}
 
+	async readMeetingSourceSnapshot(
+		projectId: string,
+		departmentId: string,
+		sourceKind: 'goal' | 'work',
+		sourceId: string,
+		ctx: OperationContext = {},
+	) {
+		await this.requireActiveDepartment(projectId, departmentId, ctx);
+		if (sourceKind === 'goal') {
+			const goal = await this.repository.findGoal(projectId, departmentId, sourceId, ctx);
+			if (!goal || goal.state === 'archived') return null;
+			const content = [
+				`Goal: ${goal.title}`,
+				goal.successCriteria ? `Success criteria: ${goal.successCriteria}` : null,
+				`State: ${goal.state}`,
+			]
+				.filter((line): line is string => line !== null)
+				.join('\n');
+			return {
+				sourceKind,
+				sourceId,
+				sourceVersion: String(goal.version),
+				content,
+				contentHash: payloadHash({ sourceKind, sourceId, version: goal.version, content }),
+			};
+		}
+		const work = await this.repository.findWork(projectId, departmentId, sourceId, ctx);
+		if (!work) return null;
+		const content = [
+			`Work instruction: ${work.instruction}`,
+			`Priority: ${work.priority}`,
+			`State: ${work.state}`,
+			`Review policy: ${work.reviewPolicy}`,
+		].join('\n');
+		return {
+			sourceKind,
+			sourceId,
+			sourceVersion: String(work.version),
+			content,
+			contentHash: payloadHash({ sourceKind, sourceId, version: work.version, content }),
+		};
+	}
+
 	async createGoal(
 		projectId: string,
 		actorId: string,
@@ -895,44 +1156,49 @@ export class WorkService {
 			dueAt: dto.dueAt ?? null,
 		};
 		const hash = payloadHash(input);
-		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const previous = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentGoalDtoSchema,
-			);
-			if (previous) return previous;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			await this.validateGoalReferences(
-				projectId,
-				departmentId,
-				input.parentId,
-				input.ownerMemberId,
-				ctx,
-			);
-			const goal = Object.assign(new DepartmentGoal(), {
-				id: randomUUID(),
-				projectId,
-				...input,
-				dueAt: input.dueAt ? new Date(input.dueAt) : null,
-				state: 'active',
-				version: 1,
-			});
-			const saved = await this.repository.saveGoal(goal, ctx);
-			const result = toGoalDto(saved);
-			await this.recordGoalCommand(
-				projectId,
-				actorId,
-				dto.requestId,
-				hash,
-				'goal.create',
-				saved,
-				result,
-				ctx,
-			);
-			return result;
-		});
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentGoalDtoSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					await this.validateGoalReferences(
+						projectId,
+						departmentId,
+						input.parentId,
+						input.ownerMemberId,
+						ctx,
+					);
+					const goal = Object.assign(new DepartmentGoal(), {
+						id: randomUUID(),
+						projectId,
+						...input,
+						dueAt: input.dueAt ? new Date(input.dueAt) : null,
+						state: 'active',
+						version: 1,
+					});
+					const saved = await this.repository.saveGoal(goal, ctx);
+					const result = toGoalDto(saved);
+					await this.recordGoalCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'goal.create',
+						saved,
+						result,
+						ctx,
+					);
+					return result;
+				}),
+		);
 	}
 
 	async updateGoal(
@@ -943,52 +1209,57 @@ export class WorkService {
 		dto: UpdateAiDepartmentGoalDto,
 	) {
 		const hash = payloadHash({ departmentId, goalId, ...dto });
-		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const previous = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentGoalDtoSchema,
-			);
-			if (previous) return previous;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			const goal = await this.repository.findGoal(projectId, departmentId, goalId, ctx);
-			if (!goal) throw new NotFoundError('Goal not found.');
-			if (goal.version !== dto.expectedVersion)
-				throw new ConflictError('Goal has changed. Reload and try again.');
-			const parentId = dto.parentId === undefined ? goal.parentId : dto.parentId;
-			const ownerMemberId =
-				dto.ownerMemberId === undefined ? goal.ownerMemberId : dto.ownerMemberId;
-			await this.validateGoalReferences(
-				projectId,
-				departmentId,
-				parentId,
-				ownerMemberId,
-				ctx,
-				goalId,
-			);
-			if (dto.title !== undefined) goal.title = dto.title.trim();
-			if (dto.successCriteria !== undefined)
-				goal.successCriteria = dto.successCriteria?.trim() || null;
-			if (dto.parentId !== undefined) goal.parentId = dto.parentId;
-			if (dto.ownerMemberId !== undefined) goal.ownerMemberId = dto.ownerMemberId;
-			if (dto.dueAt !== undefined) goal.dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
-			if (dto.state !== undefined) goal.state = dto.state;
-			goal.version += 1;
-			const saved = await this.repository.saveGoal(goal, ctx);
-			const result = toGoalDto(saved);
-			await this.recordGoalCommand(
-				projectId,
-				actorId,
-				dto.requestId,
-				hash,
-				'goal.update',
-				saved,
-				result,
-				ctx,
-			);
-			return result;
-		});
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentGoalDtoSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const goal = await this.repository.findGoal(projectId, departmentId, goalId, ctx);
+					if (!goal) throw new NotFoundError('Goal not found.');
+					if (goal.version !== dto.expectedVersion)
+						throw new ConflictError('Goal has changed. Reload and try again.');
+					const parentId = dto.parentId === undefined ? goal.parentId : dto.parentId;
+					const ownerMemberId =
+						dto.ownerMemberId === undefined ? goal.ownerMemberId : dto.ownerMemberId;
+					await this.validateGoalReferences(
+						projectId,
+						departmentId,
+						parentId,
+						ownerMemberId,
+						ctx,
+						goalId,
+					);
+					if (dto.title !== undefined) goal.title = dto.title.trim();
+					if (dto.successCriteria !== undefined)
+						goal.successCriteria = dto.successCriteria?.trim() || null;
+					if (dto.parentId !== undefined) goal.parentId = dto.parentId;
+					if (dto.ownerMemberId !== undefined) goal.ownerMemberId = dto.ownerMemberId;
+					if (dto.dueAt !== undefined) goal.dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
+					if (dto.state !== undefined) goal.state = dto.state;
+					goal.version += 1;
+					const saved = await this.repository.saveGoal(goal, ctx);
+					const result = toGoalDto(saved);
+					await this.recordGoalCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'goal.update',
+						saved,
+						result,
+						ctx,
+					);
+					return result;
+				}),
+		);
 	}
 
 	async createWork(
@@ -997,6 +1268,14 @@ export class WorkService {
 		departmentId: string,
 		dto: CreateAiDepartmentWorkDto,
 	) {
+		if (dto.reviewPolicy === 'automatic' && dto.reviewStages !== undefined) {
+			throw new UserError('Automatic review cannot define reviewer stages.');
+		}
+		if (dto.reviewStages?.some((stage) => stage.reviewers.kind === 'members')) {
+			throw new UserError(
+				'Agent reviewers are unavailable until their review context is verified.',
+			);
+		}
 		const input = {
 			departmentId,
 			instruction: dto.instruction.trim(),
@@ -1005,51 +1284,135 @@ export class WorkService {
 			priority: dto.priority,
 			dueAt: dto.dueAt ?? null,
 			reviewPolicy: dto.reviewPolicy,
+			reviewStagesJson:
+				dto.reviewPolicy === 'automatic'
+					? null
+					: JSON.stringify(
+							dto.reviewStages ?? [
+								{
+									id: 'human-review',
+									reviewers: { kind: 'authorized_writers' },
+									actorFilter: 'human_only',
+								},
+							],
+						),
+			currentReviewStageIndex: 0,
+			reviewPolicyRevision: 1,
 		};
 		const hash = payloadHash(input);
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentWorkItemDtoSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					await this.validateWorkReferences(
+						projectId,
+						departmentId,
+						input.goalId,
+						input.assigneeMemberId,
+						ctx,
+					);
+					const work = Object.assign(new WorkItem(), {
+						id: randomUUID(),
+						projectId,
+						...input,
+						assignedByUserId: input.assigneeMemberId ? actorId : null,
+						reviewPolicyRevisionId: randomUUID(),
+						dueAt: input.dueAt ? new Date(input.dueAt) : null,
+						state: 'backlog',
+						currentAttemptId: null,
+						version: 1,
+					});
+					const saved = await this.repository.saveWork(work, ctx);
+					await this.repository.saveReviewPolicyRevision(
+						Object.assign(new WorkReviewPolicyRevision(), {
+							id: saved.reviewPolicyRevisionId,
+							projectId,
+							departmentId,
+							workId: saved.id,
+							revision: saved.reviewPolicyRevision,
+							mode: saved.reviewPolicy,
+							stagesJson: saved.reviewStagesJson ?? '[]',
+							createdByUserId: actorId,
+							createdAt: new Date(),
+						}),
+						ctx,
+					);
+					await this.repository.addTransition(
+						this.transition(projectId, departmentId, saved, null, 'backlog', actorId, 'user'),
+						ctx,
+					);
+					const result = toWorkDto(saved);
+					await this.recordWorkCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'work.create',
+						saved,
+						result,
+						ctx,
+					);
+					return result;
+				}),
+		);
+	}
+
+	async lookupCreateCommand(projectId: string, actorId: string, requestId: string) {
 		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const previous = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentWorkItemDtoSchema,
-			);
-			if (previous) return previous;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			await this.validateWorkReferences(
-				projectId,
-				departmentId,
-				input.goalId,
-				input.assigneeMemberId,
-				ctx,
-			);
-			const work = Object.assign(new WorkItem(), {
-				id: randomUUID(),
-				projectId,
-				...input,
-				dueAt: input.dueAt ? new Date(input.dueAt) : null,
-				state: 'backlog',
-				currentAttemptId: null,
-				version: 1,
-			});
-			const saved = await this.repository.saveWork(work, ctx);
-			await this.repository.addTransition(
-				this.transition(projectId, departmentId, saved, null, 'backlog', actorId, 'user'),
-				ctx,
-			);
-			const result = toWorkDto(saved);
-			await this.recordWorkCommand(
+			const receipt = await this.repository.findCreateCommandReceipt(
 				projectId,
 				actorId,
-				dto.requestId,
-				hash,
-				'work.create',
-				saved,
-				result,
+				requestId,
 				ctx,
 			);
-			return result;
+			if (!receipt) return { kind: 'absent' as const };
+			if (
+				receipt.operation !== 'work.create' ||
+				receipt.status !== 'completed' ||
+				!receipt.responseJson
+			)
+				return { kind: 'conflict' as const };
+
+			let result: AiDepartmentWorkItemDto;
+			try {
+				result = aiDepartmentWorkItemDtoSchema.parse(JSON.parse(receipt.responseJson));
+			} catch {
+				return { kind: 'conflict' as const };
+			}
+			if (result.projectId !== projectId) return { kind: 'conflict' as const };
+			const work = await this.repository.findWork(projectId, result.departmentId, result.id, ctx);
+			if (!work || work.departmentId !== result.departmentId) return { kind: 'conflict' as const };
+
+			return {
+				kind: 'found' as const,
+				work: { id: work.id, projectId: work.projectId, departmentId: work.departmentId },
+				payloadHash: receipt.payloadHash,
+			};
 		});
+	}
+
+	async validateMeetingReferences(
+		projectId: string,
+		departmentId: string,
+		goalId: string | null,
+		workIds: string[],
+		ctx: OperationContext = {},
+	) {
+		if (goalId && !(await this.repository.findGoal(projectId, departmentId, goalId, ctx)))
+			throw new UserError('The meeting goal must belong to this department.');
+		for (const workId of workIds) {
+			if (!(await this.repository.findWork(projectId, departmentId, workId, ctx)))
+				throw new UserError('Meeting work references must belong to this department.');
+		}
 	}
 
 	async listWork(
@@ -1072,7 +1435,54 @@ export class WorkService {
 	async getWork(projectId: string, departmentId: string, workId: string) {
 		const work = await this.repository.findWork(projectId, departmentId, workId);
 		if (!work) throw new NotFoundError('Work item not found.');
-		return toWorkDto(work);
+		const dto = toWorkDto(work);
+		const children = await this.repository.listChildrenForParent(projectId, departmentId, workId);
+		const childReports = await Promise.all(
+			children.map(async (child) => ({
+				workId: child.id,
+				state: child.state,
+				report:
+					child.state === 'done'
+						? await this.repository.findLatestAcceptedReport(projectId, departmentId, child.id)
+						: null,
+			})),
+		);
+		return { ...dto, childReports };
+	}
+
+	private async resumeParentsAfterChildTerminal(child: WorkItem, ctx: OperationContext) {
+		const parents = await this.repository.findChildrenWaitingOnParent(
+			child.projectId,
+			child.departmentId,
+			child.id,
+			ctx,
+		);
+		for (const parent of parents) {
+			await this.releases.resumeWaitingParent(
+				parent.projectId,
+				parent.departmentId,
+				parent.id,
+				ctx,
+			);
+		}
+	}
+
+	async getCurrentClaim(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+	): Promise<AiDepartmentWorkClaimSummaryDto | null> {
+		const work = await this.repository.findWork(projectId, departmentId, workId);
+		if (!work) throw new NotFoundError('Work item not found.');
+		if (!work.currentAttemptId) return null;
+		const claim = await this.repository.findClaim(projectId, work.currentAttemptId);
+		if (!claim || claim.workId !== work.id || claim.departmentId !== departmentId) return null;
+		const now = new Date();
+		return {
+			memberId: claim.memberId,
+			leaseUntil: claim.leaseUntil.toISOString(),
+			state: claim.releasedAt ? 'released' : claim.leaseUntil <= now ? 'expired' : 'active',
+		};
 	}
 
 	async listRelationships(projectId: string, departmentId: string, workId: string) {
@@ -1091,84 +1501,98 @@ export class WorkService {
 		dto: CreateAiDepartmentWorkRelationshipDto,
 	) {
 		const hash = payloadHash({ departmentId, workId, ...dto });
-		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const previous = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentWorkRelationshipDtoSchema,
-			);
-			if (previous) return previous;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			const work = await this.requireMutableRelationshipWork(
-				projectId,
-				departmentId,
-				workId,
-				dto.expectedVersion,
-				ctx,
-			);
-			if (workId === dto.relatedWorkId)
-				throw new UserError('Work cannot have a relationship with itself.');
-			const related = await this.repository.findWork(
-				projectId,
-				departmentId,
-				dto.relatedWorkId,
-				ctx,
-			);
-			if (!related) throw new NotFoundError('Related work item not found.');
-			if (
-				(await this.repository.listRelationships(projectId, departmentId, workId, ctx)).some(
-					(existing) => existing.kind === dto.kind && existing.relatedWorkId === dto.relatedWorkId,
-				)
-			) {
-				throw new ConflictError('Work relationship already exists.');
-			}
-			if (dto.kind === 'parent') {
-				if (await this.repository.findParentRelationship(projectId, departmentId, workId, ctx)) {
-					throw new ConflictError('Work already has a parent.');
-				}
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentWorkRelationshipDtoSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const work = await this.requireMutableRelationshipWork(
+						projectId,
+						departmentId,
+						workId,
+						dto.expectedVersion,
+						ctx,
+					);
+					if (workId === dto.relatedWorkId)
+						throw new UserError('Work cannot have a relationship with itself.');
+					const related = await this.repository.findWork(
+						projectId,
+						departmentId,
+						dto.relatedWorkId,
+						ctx,
+					);
+					if (!related) throw new NotFoundError('Related work item not found.');
+					if (
+						(await this.repository.listRelationships(projectId, departmentId, workId, ctx)).some(
+							(existing) =>
+								existing.kind === dto.kind && existing.relatedWorkId === dto.relatedWorkId,
+						)
+					) {
+						throw new ConflictError('Work relationship already exists.');
+					}
+					if (dto.kind === 'parent') {
+						if (
+							await this.repository.findParentRelationship(projectId, departmentId, workId, ctx)
+						) {
+							throw new ConflictError('Work already has a parent.');
+						}
 
-				const parents = new Map(
-					(await this.repository.listRelationshipEdges(projectId, departmentId, 'parent', ctx)).map(
-						(edge) => [edge.workId, edge.relatedWorkId],
-					),
-				);
-				let parentId: string | undefined = dto.relatedWorkId;
-				const seen = new Set<string>([workId]);
-				while (parentId) {
-					if (seen.has(parentId)) throw new UserError('Work hierarchy cannot contain a cycle.');
-					seen.add(parentId);
-					parentId = parents.get(parentId);
-				}
-			} else if (
-				await this.relationshipPathExists(projectId, departmentId, workId, dto.relatedWorkId, ctx)
-			) {
-				throw new UserError('Work blockers cannot contain a cycle.');
-			}
-			const relationship = Object.assign(new WorkRelationship(), {
-				id: randomUUID(),
-				projectId,
-				departmentId,
-				workId,
-				relatedWorkId: dto.relatedWorkId,
-				kind: dto.kind,
-			});
-			const saved = await this.repository.saveRelationship(relationship, ctx);
-			work.version += 1;
-			await this.repository.saveWork(work, ctx);
-			const result = toWorkRelationshipDto(saved);
-			await this.recordRelationshipCommand(
-				projectId,
-				actorId,
-				dto.requestId,
-				hash,
-				'work.relationship.create',
-				work,
-				result,
-				ctx,
-			);
-			return result;
-		});
+						const parents = new Map(
+							(
+								await this.repository.listRelationshipEdges(projectId, departmentId, 'parent', ctx)
+							).map((edge) => [edge.workId, edge.relatedWorkId]),
+						);
+						let parentId: string | undefined = dto.relatedWorkId;
+						const seen = new Set<string>([workId]);
+						while (parentId) {
+							if (seen.has(parentId)) throw new UserError('Work hierarchy cannot contain a cycle.');
+							seen.add(parentId);
+							parentId = parents.get(parentId);
+						}
+					} else if (
+						await this.relationshipPathExists(
+							projectId,
+							departmentId,
+							workId,
+							dto.relatedWorkId,
+							ctx,
+						)
+					) {
+						throw new UserError('Work blockers cannot contain a cycle.');
+					}
+					const relationship = Object.assign(new WorkRelationship(), {
+						id: randomUUID(),
+						projectId,
+						departmentId,
+						workId,
+						relatedWorkId: dto.relatedWorkId,
+						kind: dto.kind,
+					});
+					const saved = await this.repository.saveRelationship(relationship, ctx);
+					work.version += 1;
+					await this.repository.saveWork(work, ctx);
+					const result = toWorkRelationshipDto(saved);
+					await this.recordRelationshipCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'work.relationship.create',
+						work,
+						result,
+						ctx,
+					);
+					return result;
+				}),
+		);
 	}
 
 	async deleteRelationship(
@@ -1180,46 +1604,120 @@ export class WorkService {
 		dto: DeleteAiDepartmentWorkRelationshipDto,
 	) {
 		const hash = payloadHash({ departmentId, workId, relationshipId, ...dto });
-		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const previous = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentWorkRelationshipDtoSchema,
-			);
-			if (previous) return previous;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			const work = await this.requireMutableRelationshipWork(
-				projectId,
-				departmentId,
-				workId,
-				dto.expectedVersion,
-				ctx,
-			);
-			const relationship = await this.repository.findRelationship(
-				projectId,
-				departmentId,
-				workId,
-				relationshipId,
-				ctx,
-			);
-			if (!relationship) throw new NotFoundError('Work relationship not found.');
-			const result = toWorkRelationshipDto(relationship);
-			await this.repository.removeRelationship(relationship, ctx);
-			work.version += 1;
-			await this.repository.saveWork(work, ctx);
-			await this.recordRelationshipCommand(
-				projectId,
-				actorId,
-				dto.requestId,
-				hash,
-				'work.relationship.delete',
-				work,
-				result,
-				ctx,
-			);
-			return result;
-		});
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentWorkRelationshipDtoSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const work = await this.requireMutableRelationshipWork(
+						projectId,
+						departmentId,
+						workId,
+						dto.expectedVersion,
+						ctx,
+						true,
+					);
+					const relationship = await this.repository.findRelationship(
+						projectId,
+						departmentId,
+						workId,
+						relationshipId,
+						ctx,
+					);
+					if (!relationship) throw new NotFoundError('Work relationship not found.');
+					const result = toWorkRelationshipDto(relationship);
+					await this.repository.removeRelationship(relationship, ctx);
+					work.version += 1;
+					await this.repository.saveWork(work, ctx);
+					await this.recordRelationshipCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'work.relationship.delete',
+						work,
+						result,
+						ctx,
+					);
+					return result;
+				}),
+		);
+	}
+
+	async addUserWorkActivity(
+		projectId: string,
+		actorId: string,
+		departmentId: string,
+		workId: string,
+		dto: CreateAiDepartmentWorkActivityDto,
+	): Promise<AiDepartmentWorkActivityResult> {
+		dto = createAiDepartmentWorkActivitySchema.parse(dto);
+		const hash = payloadHash({ departmentId, workId, ...dto });
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentWorkActivityResultSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
+					if (!work) throw new NotFoundError('Work item not found.');
+					if (work.version !== dto.expectedVersion)
+						throw new ConflictError('Work item has changed. Reload and try again.');
+
+					work.version += 1;
+					const savedWork = await this.repository.saveWork(work, ctx);
+					const activity = Object.assign(new WorkActivity(), {
+						id: randomUUID(),
+						projectId,
+						departmentId,
+						workId,
+						attemptId: savedWork.currentAttemptId,
+						actorId,
+						actorKind: 'user' as const,
+						kind: dto.action,
+						body: dto.body.trim(),
+						workVersion: savedWork.version,
+						createdAt: new Date(),
+					});
+					await this.repository.addActivity(activity, ctx);
+
+					const result: AiDepartmentWorkActivityResult = {
+						work: toWorkDto(savedWork),
+						activity: {
+							id: activity.id,
+							workId: activity.workId,
+							attemptId: activity.attemptId,
+							actorId: activity.actorId,
+							actorKind: activity.actorKind,
+							kind: activity.kind,
+							body: activity.body,
+							report: null,
+							workVersion: activity.workVersion,
+							createdAt: activity.createdAt.toISOString(),
+						},
+					};
+					await this.directory.saveReceipt(
+						this.receipt(projectId, actorId, dto.requestId, hash, `work.${dto.action}`, result),
+						ctx,
+					);
+					return result;
+				}),
+		);
 	}
 
 	async listActivity(
@@ -1238,6 +1736,39 @@ export class WorkService {
 			skip,
 		);
 		return {
+			data: data.map((entry) => {
+				return {
+					id: entry.id,
+					workId: entry.workId,
+					attemptId: entry.attemptId,
+					actorId: entry.actorId,
+					actorKind: entry.actorKind,
+					kind: entry.kind,
+					body: entry.body,
+					report: completionReportOf(entry),
+					workVersion: entry.workVersion,
+					createdAt: entry.createdAt.toISOString(),
+				};
+			}),
+			count,
+		};
+	}
+
+	async listDepartmentActivity(
+		projectId: string,
+		departmentId: string,
+		take: number,
+		skip: number,
+	) {
+		const department = await this.repository.findDepartment(projectId, departmentId);
+		if (!department || department.archived) throw new NotFoundError('Department not found.');
+		const [data, count] = await this.repository.listDepartmentActivity(
+			projectId,
+			departmentId,
+			take,
+			skip,
+		);
+		return {
 			data: data.map((entry) => ({
 				id: entry.id,
 				workId: entry.workId,
@@ -1246,6 +1777,7 @@ export class WorkService {
 				actorKind: entry.actorKind,
 				kind: entry.kind,
 				body: entry.body,
+				report: completionReportOf(entry),
 				workVersion: entry.workVersion,
 				createdAt: entry.createdAt.toISOString(),
 			})),
@@ -1256,27 +1788,174 @@ export class WorkService {
 	async listAttempts(projectId: string, departmentId: string, workId: string) {
 		const work = await this.repository.findWork(projectId, departmentId, workId);
 		if (!work) throw new NotFoundError('Work item not found.');
-		return (await this.repository.listAttempts(projectId, workId)).map(
-			(attempt): AiDepartmentWorkAttemptDto => ({
-				id: attempt.id,
-				workId: attempt.workId,
-				ordinal: attempt.ordinal,
-				memberId: attempt.memberId,
-				provider: attempt.provider,
-				executorId: attempt.executorId,
-				phase: attempt.phase,
-				outcome: attempt.outcome,
-				cancellationPending: attempt.cancelRequestedAt !== null && attempt.phase !== 'terminal',
-				startedAt: attempt.startedAt?.toISOString() ?? null,
-				finishedAt: attempt.finishedAt?.toISOString() ?? null,
+		const attempts = await this.repository.listAttempts(projectId, workId);
+		return await Promise.all(
+			attempts.map(async (attempt): Promise<AiDepartmentWorkAttemptDto> => {
+				const reviewRound = attempt.reviewRoundId
+					? await this.repository.findReviewRound(projectId, workId, attempt.id)
+					: null;
+				let nativeToolApproval: AiDepartmentWorkAttemptDto['nativeToolApproval'] = 'not_pending';
+				if (attempt.phase === 'suspended') {
+					nativeToolApproval = 'unknown';
+					if (attempt.ownerExecutionRef) {
+						try {
+							nativeToolApproval = await this.executor.nativeToolApproval({
+								actorId: attempt.initiatingUserId,
+								projectId: attempt.projectId,
+								executorId: attempt.executorId,
+								attemptId: attempt.id,
+								ownerExecutionRef: attempt.ownerExecutionRef,
+							});
+						} catch {
+							// Approval detail is supplemental; keep the authorized attempt history available.
+						}
+					}
+				}
+				return {
+					id: attempt.id,
+					workId: attempt.workId,
+					submittedResultId: attempt.submittedResultId,
+					reviewRoundId: attempt.reviewRoundId,
+					reviewRoundVersion: reviewRound?.version ?? null,
+					reviewActiveStageId: reviewRound?.activeStageId ?? null,
+					reviewPolicyRevision: attempt.reviewPolicyRevision,
+					ordinal: attempt.ordinal,
+					memberId: attempt.memberId,
+					provider: attempt.provider,
+					executorId: attempt.executorId,
+					phase: attempt.phase,
+					nativeToolApproval,
+					outcome: attempt.outcome,
+					cancellationPending: attempt.cancelRequestedAt !== null && attempt.phase !== 'terminal',
+					startedAt: attempt.startedAt?.toISOString() ?? null,
+					finishedAt: attempt.finishedAt?.toISOString() ?? null,
+					reviewRoundStatus: attempt.reviewRoundStatus ?? null,
+				};
 			}),
 		);
+	}
+
+	async listToolApprovalAttention(projectId: string, departmentId: string) {
+		const department = await this.repository.findDepartment(projectId, departmentId);
+		if (!department || department.archived) throw new NotFoundError('Department not found.');
+		const { attempts, hasMore } = await this.repository.listSuspendedAttempts(
+			projectId,
+			departmentId,
+		);
+		const approvals = [];
+		for (let index = 0; index < attempts.length; index += 10) {
+			const batch = await Promise.all(
+				attempts.slice(index, index + 10).map(async (attempt) => {
+					if (!attempt.ownerExecutionRef) {
+						return { attempt, state: 'unknown' as const };
+					}
+					try {
+						const state = await this.executor.nativeToolApproval({
+							actorId: attempt.initiatingUserId,
+							projectId: attempt.projectId,
+							executorId: attempt.executorId,
+							attemptId: attempt.id,
+							ownerExecutionRef: attempt.ownerExecutionRef,
+						});
+						return {
+							attempt,
+							state:
+								state === 'pending'
+									? ('pending' as const)
+									: state === 'unknown'
+										? ('unknown' as const)
+										: null,
+						};
+					} catch {
+						return { attempt, state: 'unknown' as const };
+					}
+				}),
+			);
+			approvals.push(...batch);
+		}
+		return {
+			items: approvals.flatMap(({ attempt, state }) =>
+				state
+					? [
+							{
+								workId: attempt.workId,
+								attemptId: attempt.id,
+								memberId: attempt.memberId,
+								ordinal: attempt.ordinal,
+								state,
+							},
+						]
+					: [],
+			),
+			hasMore,
+		};
+	}
+
+	async getWakeStatus(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+	): Promise<AiDepartmentWorkWakeStatus> {
+		const work = await this.repository.findWork(projectId, departmentId, workId);
+		if (!work) throw new NotFoundError('Work item not found.');
+		const wake = await this.repository.findWakeIntent(projectId, departmentId, workId);
+		return {
+			state: wake ? (wake.deliveredAt ? 'delivered' : 'pending') : null,
+			createdAt: wake?.createdAt.toISOString() ?? null,
+			deliveredAt: wake?.deliveredAt?.toISOString() ?? null,
+		};
 	}
 
 	async getWorkHistory(projectId: string, departmentId: string, workId: string) {
 		const work = await this.repository.findWork(projectId, departmentId, workId);
 		if (!work) throw new NotFoundError('Work item not found.');
 		return await this.repository.listTransitions(projectId, departmentId, workId);
+	}
+
+	async listReviewDecisions(
+		projectId: string,
+		departmentId: string,
+		workId: string,
+	): Promise<AiDepartmentWorkReviewDecisionDto[]> {
+		const work = await this.repository.findWork(projectId, departmentId, workId);
+		if (!work) throw new NotFoundError('Work item not found.');
+		const { legacy, staged } = await this.repository.listWorkReviewDecisions(
+			projectId,
+			departmentId,
+			workId,
+		);
+		return [
+			...legacy.map(
+				(decision): AiDepartmentWorkReviewDecisionDto => ({
+					id: decision.id,
+					workId: decision.workId,
+					reviewRoundId: decision.reviewRoundId ?? decision.attemptId,
+					stageId: decision.stageId ?? 'human-review',
+					resultId: decision.resultId ?? decision.attemptId,
+					actorId: decision.actorId,
+					actorKind: 'user',
+					decision: decision.decision,
+					reason: decision.reason,
+					priorVersion: decision.priorVersion,
+					createdAt: decision.createdAt.toISOString(),
+				}),
+			),
+			...staged.map(
+				(decision): AiDepartmentWorkReviewDecisionDto => ({
+					id: decision.id,
+					workId: decision.workId,
+					reviewRoundId: decision.roundId,
+					stageId: decision.stageId,
+					resultId: decision.resultId,
+					actorId: decision.actorId,
+					actorKind: decision.actorKind,
+					decision: decision.decision,
+					reason: decision.reason,
+					priorVersion: decision.priorVersion,
+					createdAt: decision.createdAt.toISOString(),
+				}),
+			),
+		].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
 	}
 
 	async reviewWork(
@@ -1289,84 +1968,368 @@ export class WorkService {
 		if (dto.decision === 'return' && !dto.reason?.trim())
 			throw new UserError('A reason is required when work is returned.');
 		const hash = payloadHash({ departmentId, workId, ...dto });
-		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const prior = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentReviewResultSchema,
-			);
-			if (prior) return prior;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
-			if (!work) throw new NotFoundError('Work item not found.');
-			if (work.version !== dto.expectedVersion)
-				throw new ConflictError('Work item has changed. Reload and try again.');
-			if (work.state !== 'review' || work.currentAttemptId !== dto.attemptId)
-				throw new ConflictError('Only the current result can be reviewed.');
-			const attempt = await this.repository.findAttempt(projectId, dto.attemptId, ctx);
-			if (
-				!attempt ||
-				attempt.phase !== 'terminal' ||
-				!(await this.repository.hasSubmittedResult(projectId, work.id, attempt.id, ctx))
-			)
-				throw new ConflictError('The current attempt has no successful result to review.');
-			const event = dto.decision === 'accept' ? 'review_accepted' : 'review_returned';
-			const fromState = work.state;
-			work.state = transitionWorkState(work.state, event, false);
-			work.version += 1;
-			const saved = await this.repository.saveWork(work, ctx);
-			await this.repository.addTransition(
-				this.transition(
-					projectId,
-					departmentId,
-					saved,
-					fromState,
-					saved.state,
-					actorId,
-					'user',
-					dto.reason ?? null,
-				),
-				ctx,
-			);
-			await this.repository.addReviewDecision(
-				Object.assign(new WorkReviewDecision(), {
-					id: randomUUID(),
-					projectId,
-					departmentId,
-					workId,
-					attemptId: attempt.id,
-					actorId,
-					decision: dto.decision,
-					reason: dto.reason?.trim() || null,
-					priorVersion: dto.expectedVersion,
-					createdAt: new Date(),
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const prior = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentReviewResultSchema,
+					);
+					if (prior) return prior;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
+					if (!work) throw new NotFoundError('Work item not found.');
+					if (work.version !== dto.expectedVersion)
+						throw new ConflictError('Work item has changed. Reload and try again.');
+					if (work.state !== 'review' || work.currentAttemptId !== dto.attemptId)
+						throw new ConflictError('Only the current result can be reviewed.');
+					const attempt = await this.repository.findAttempt(projectId, dto.attemptId, ctx);
+					if (
+						!attempt ||
+						attempt.phase !== 'terminal' ||
+						!(await this.repository.hasSubmittedResult(projectId, work.id, attempt.id, ctx))
+					)
+						throw new ConflictError('The current attempt has no successful result to review.');
+					let reviewRoundId: string | null = null;
+					let stageId: string | null = null;
+					let resultId: string | null = null;
+					let round: WorkReviewRound | null = null;
+					let stage: z.infer<typeof aiDepartmentReviewStageSchema> | null = null;
+					let isFinalAccept = dto.decision === 'accept';
+					if (
+						attempt.reviewPolicy === 'required' &&
+						attempt.submittedResultId &&
+						attempt.reviewRoundId
+					) {
+						const [submittedResult, policyRevision] = await Promise.all([
+							this.repository.findSubmittedResult(
+								projectId,
+								work.id,
+								attempt.submittedResultId,
+								ctx,
+							),
+							attempt.reviewPolicyRevisionId
+								? this.repository.findReviewPolicyRevision(
+										projectId,
+										work.id,
+										attempt.reviewPolicyRevision,
+										ctx,
+									)
+								: null,
+						]);
+						round = await this.repository.findReviewRound(projectId, work.id, attempt.id, ctx);
+						if (!submittedResult || !policyRevision || !round || round.status !== 'open')
+							throw new ConflictError('The current review round is no longer open.');
+						const stages = z
+							.array(aiDepartmentReviewStageSchema)
+							.min(1)
+							.parse(JSON.parse(policyRevision.stagesJson));
+						stage = stages.find((candidate) => candidate.id === round!.activeStageId) ?? null;
+						if (!stage) throw new ConflictError('The active review stage is no longer valid.');
+						if (
+							dto.resultId !== submittedResult.id ||
+							dto.reviewRoundId !== round.id ||
+							dto.stageId !== stage.id ||
+							dto.expectedReviewVersion !== round.version
+						)
+							throw new ConflictError(
+								'The review stage or result has changed. Reload and try again.',
+							);
+						if (stage.actorFilter === 'not_creator' && actorId === round.requesterId)
+							throw new ForbiddenError('The review requester cannot review this result.');
+						if (stage.reviewers.kind === 'users' && !stage.reviewers.userIds.includes(actorId))
+							throw new ForbiddenError('You are not an eligible reviewer for this stage.');
+						if (stage.reviewers.kind === 'members')
+							throw new ConflictError(
+								'Agent review is unavailable until its review context is verified.',
+							);
+						reviewRoundId = round.id;
+						stageId = stage.id;
+						resultId = submittedResult.id;
+						isFinalAccept = dto.decision === 'accept' && stages.at(-1)?.id === stage.id;
+					} else if (attempt.reviewPolicy === 'required') {
+						const legacyStages = attempt.reviewStagesJson
+							? z
+									.array(aiDepartmentReviewStageSchema)
+									.min(1)
+									.parse(JSON.parse(attempt.reviewStagesJson))
+							: [
+									{
+										id: 'human-review',
+										reviewers: { kind: 'authorized_writers' as const },
+										actorFilter: 'human_only' as const,
+									},
+								];
+						if (legacyStages.length !== 1)
+							throw new ConflictError('Legacy review identity does not identify one stage.');
+						stage = legacyStages[0];
+						if (
+							(dto.resultId !== undefined && dto.resultId !== attempt.id) ||
+							(dto.reviewRoundId !== undefined && dto.reviewRoundId !== attempt.id) ||
+							(dto.stageId !== undefined && dto.stageId !== stage.id) ||
+							(dto.expectedReviewVersion !== undefined &&
+								dto.expectedReviewVersion !== work.version)
+						)
+							throw new ConflictError(
+								'The legacy review result has changed. Reload and try again.',
+							);
+						if (stage.actorFilter === 'not_creator' && actorId === attempt.initiatingUserId)
+							throw new ForbiddenError('The review requester cannot review this result.');
+						if (stage.reviewers.kind === 'users' && !stage.reviewers.userIds.includes(actorId))
+							throw new ForbiddenError('You are not an eligible reviewer for this stage.');
+						if (stage.reviewers.kind === 'members')
+							throw new ConflictError(
+								'Agent review is unavailable until its review context is verified.',
+							);
+						reviewRoundId = attempt.id;
+						stageId = stage.id;
+						resultId = attempt.id;
+					} else {
+						throw new ConflictError('Automatic review does not accept human verdicts.');
+					}
+					const event =
+						dto.decision === 'return' || isFinalAccept
+							? dto.decision === 'accept'
+								? 'review_accepted'
+								: 'review_returned'
+							: null;
+					const fromState = work.state;
+					if (event) work.state = transitionWorkState(work.state, event, false);
+					if (round && stage) {
+						const policyRevision = await this.repository.findReviewPolicyRevision(
+							projectId,
+							work.id,
+							attempt.reviewPolicyRevision,
+							ctx,
+						);
+						const stages = z
+							.array(aiDepartmentReviewStageSchema)
+							.min(1)
+							.parse(JSON.parse(policyRevision!.stagesJson));
+						const nextStage =
+							stages[stages.findIndex((candidate) => candidate.id === stage.id) + 1];
+						round.version += 1;
+						round.activeStageId = dto.decision === 'accept' && !isFinalAccept ? nextStage.id : null;
+						if (event) {
+							round.status = dto.decision === 'accept' ? 'accepted' : 'returned';
+							round.closedAt = new Date();
+						}
+						await this.repository.saveReviewRound(round, ctx);
+						attempt.reviewRoundStatus = round.status;
+						attempt.reviewRoundClosedAt = round.closedAt;
+						await this.repository.saveAttempt(attempt, ctx);
+						await this.repository.saveReviewStageDecision(
+							Object.assign(new WorkReviewStageDecision(), {
+								id: randomUUID(),
+								projectId,
+								departmentId,
+								workId,
+								roundId: round.id,
+								stageId: stage.id,
+								resultId: attempt.submittedResultId!,
+								actorKind: 'user',
+								actorId,
+								decision: dto.decision,
+								reason: dto.reason?.trim() || null,
+								priorVersion: dto.expectedReviewVersion,
+								commandId: dto.requestId,
+								createdAt: new Date(),
+							}),
+							ctx,
+						);
+					}
+					if (dto.decision === 'return') work.currentReviewStageIndex = 0;
+					if (dto.decision === 'accept' && !isFinalAccept) work.currentReviewStageIndex += 1;
+					work.version += 1;
+					const saved = await this.repository.saveWork(work, ctx);
+					if (event) {
+						await this.repository.addTransition(
+							this.transition(
+								projectId,
+								departmentId,
+								saved,
+								fromState,
+								saved.state,
+								actorId,
+								'user',
+								dto.reason ?? null,
+							),
+							ctx,
+						);
+					}
+					if (!round)
+						await this.repository.addReviewDecision(
+							Object.assign(new WorkReviewDecision(), {
+								id: randomUUID(),
+								projectId,
+								departmentId,
+								workId,
+								attemptId: attempt.id,
+								reviewRoundId,
+								stageId,
+								resultId,
+								actorId,
+								decision: dto.decision,
+								reason: dto.reason?.trim() || null,
+								priorVersion: dto.expectedVersion,
+								createdAt: new Date(),
+							}),
+							ctx,
+						);
+					if (dto.decision === 'return')
+						await this.enqueueWorkWake(saved, actorId, dto.requestId, ctx);
+					if (isFinalAccept) {
+						await this.resumeParentsAfterChildTerminal(saved, ctx);
+					}
+					const savedReviewStages = saved.reviewStagesJson
+						? z.array(aiDepartmentReviewStageSchema).parse(JSON.parse(saved.reviewStagesJson))
+						: [];
+					const activeStage = savedReviewStages[saved.currentReviewStageIndex];
+					const actorCanReviewActiveStage =
+						!activeStage ||
+						((activeStage.actorFilter !== 'not_creator' || actorId !== attempt.initiatingUserId) &&
+							(activeStage.reviewers.kind === 'authorized_writers' ||
+								(activeStage.reviewers.kind === 'users' &&
+									activeStage.reviewers.userIds.includes(actorId))));
+					const result: AiDepartmentReviewResult = {
+						work: toWorkDto(saved),
+						decision: dto.decision,
+						attemptId: attempt.id,
+						resultId: resultId ?? attempt.id,
+						reviewRoundId: reviewRoundId ?? attempt.id,
+						activeStageId: activeStage?.id ?? null,
+						reviewVersion: round?.version ?? saved.version,
+						reviewPolicyRevision: attempt.reviewPolicyRevision,
+						allowedActions:
+							saved.state === 'review' && actorCanReviewActiveStage ? ['accept', 'return'] : [],
+						roundStatus: attempt.reviewRoundStatus ?? null,
+					};
+					await this.recordWorkCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'work.review',
+						saved,
+						result.work,
+						ctx,
+					);
+					const receipt = await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx);
+					if (receipt) {
+						receipt.responseJson = JSON.stringify(result);
+						await this.directory.saveReceipt(receipt, ctx);
+					}
+					return result;
 				}),
-				ctx,
-			);
-			if (dto.decision === 'return') await this.enqueueWorkWake(saved, actorId, dto.requestId, ctx);
-			const result: AiDepartmentReviewResult = {
-				work: toWorkDto(saved),
-				decision: dto.decision,
-				attemptId: attempt.id,
-			};
-			await this.recordWorkCommand(
-				projectId,
-				actorId,
-				dto.requestId,
-				hash,
-				'work.review',
-				saved,
-				result.work,
-				ctx,
-			);
-			const receipt = await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx);
-			if (receipt) {
-				receipt.responseJson = JSON.stringify(result);
-				await this.directory.saveReceipt(receipt, ctx);
-			}
-			return result;
-		});
+		);
+	}
+
+	async reopenReview(
+		projectId: string,
+		actorId: string,
+		departmentId: string,
+		workId: string,
+		dto: ReopenAiDepartmentWorkReviewDto,
+	): Promise<AiDepartmentWorkReviewReopenResult> {
+		const hash = payloadHash({ departmentId, workId, ...dto });
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const prior = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentWorkReviewReopenResultSchema,
+					);
+					if (prior) return prior;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
+					if (!work) throw new NotFoundError('Work item not found.');
+					if (work.version !== dto.expectedVersion)
+						throw new ConflictError('Work item has changed. Reload and try again.');
+					if (work.state !== 'review' || !work.currentAttemptId)
+						throw new ConflictError('Only work in review can be reopened.');
+					const attempt = await this.repository.findAttempt(projectId, work.currentAttemptId, ctx);
+					if (
+						!attempt ||
+						attempt.workId !== work.id ||
+						attempt.phase !== 'terminal' ||
+						!(await this.repository.hasSubmittedResult(projectId, work.id, attempt.id, ctx))
+					)
+						throw new ConflictError(
+							'Review cannot be reopened before the current run is confirmed terminal.',
+						);
+					const claim = await this.repository.findClaim(projectId, attempt.id, ctx);
+					if (claim && !claim.releasedAt) {
+						throw new ConflictError(
+							'Review cannot be reopened while the attempt still has an active claim.',
+						);
+					}
+					const round = attempt.reviewRoundId
+						? await this.repository.findReviewRound(projectId, work.id, attempt.id, ctx)
+						: null;
+					if (round) {
+						if (round.status !== 'open')
+							throw new ConflictError('Only an open review round can be reopened.');
+						round.status = 'reopened';
+						round.activeStageId = null;
+						round.version += 1;
+						round.closedAt = new Date();
+						await this.repository.saveReviewRound(round, ctx);
+					}
+					attempt.reviewRoundStatus = 'reopened';
+					attempt.reviewRoundClosedAt = new Date();
+					await this.repository.saveAttempt(attempt, ctx);
+					const fromState = work.state;
+					work.state = transitionWorkState(work.state, 'review_returned', false);
+					work.currentReviewStageIndex = 0;
+					work.version += 1;
+					const saved = await this.repository.saveWork(work, ctx);
+					await this.repository.addTransition(
+						this.transition(
+							projectId,
+							departmentId,
+							saved,
+							fromState,
+							saved.state,
+							actorId,
+							'user',
+							dto.reason,
+						),
+						ctx,
+					);
+					await this.enqueueWorkWake(saved, actorId, dto.requestId, ctx);
+					const result: AiDepartmentWorkReviewReopenResult = {
+						work: toWorkDto(saved),
+						attemptId: attempt.id,
+						reviewRoundId: round?.id ?? attempt.id,
+						reviewPolicyRevision: attempt.reviewPolicyRevision,
+						roundStatus: 'reopened',
+					};
+					await this.recordWorkCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'work.review.reopen',
+						saved,
+						result.work,
+						ctx,
+					);
+					const receipt = await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx);
+					if (receipt) {
+						receipt.responseJson = JSON.stringify(result);
+						await this.directory.saveReceipt(receipt, ctx);
+					}
+					return result;
+				}),
+		);
 	}
 
 	async updateWork(
@@ -1377,64 +2340,133 @@ export class WorkService {
 		dto: UpdateAiDepartmentWorkDto,
 	) {
 		const hash = payloadHash({ departmentId, workId, ...dto });
-		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const previous = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentWorkItemDtoSchema,
-			);
-			if (previous) return previous;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
-			if (!work) throw new NotFoundError('Work item not found.');
-			if (work.version !== dto.expectedVersion)
-				throw new ConflictError('Work item has changed. Reload and try again.');
-			if (!['backlog', 'ready'].includes(work.state)) {
-				throw new ConflictError('Work can be edited only in backlog or ready state.');
-			}
-			if (
-				work.currentAttemptId &&
-				(await this.repository.findAttempt(projectId, work.currentAttemptId, ctx))?.phase !==
-					'terminal'
-			) {
-				throw new ConflictError('Work cannot change while a wake or run is active.');
-			}
-			const goalId = dto.goalId === undefined ? work.goalId : dto.goalId;
-			const assigneeId =
-				dto.assigneeMemberId === undefined ? work.assigneeMemberId : dto.assigneeMemberId;
-			await this.validateWorkReferences(projectId, departmentId, goalId, assigneeId, ctx);
-			const priorAssigneeMemberId = work.assigneeMemberId;
-			if (dto.instruction !== undefined) work.instruction = dto.instruction.trim();
-			if (dto.goalId !== undefined) work.goalId = dto.goalId;
-			if (dto.assigneeMemberId !== undefined) work.assigneeMemberId = dto.assigneeMemberId;
-			if (dto.priority !== undefined) work.priority = dto.priority;
-			if (dto.dueAt !== undefined) work.dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
-			if (dto.reviewPolicy !== undefined) work.reviewPolicy = dto.reviewPolicy;
-			work.version += 1;
-			const saved = await this.repository.saveWork(work, ctx);
-			if (
-				saved.state === 'ready' &&
-				dto.assigneeMemberId !== undefined &&
-				dto.assigneeMemberId !== priorAssigneeMemberId
-			) {
-				await this.repository.cancelPendingEligibility(projectId, workId, ctx);
-				await this.repository.markPendingWakesDelivered(workId, ctx);
-				if (saved.assigneeMemberId) await this.enqueueWorkWake(saved, actorId, dto.requestId, ctx);
-			}
-			const result = toWorkDto(saved);
-			await this.recordWorkCommand(
-				projectId,
-				actorId,
-				dto.requestId,
-				hash,
-				'work.update',
-				saved,
-				result,
-				ctx,
-			);
-			return result;
-		});
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentWorkItemDtoSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
+					if (!work) throw new NotFoundError('Work item not found.');
+					if (work.version !== dto.expectedVersion)
+						throw new ConflictError('Work item has changed. Reload and try again.');
+					if (!['backlog', 'ready'].includes(work.state)) {
+						throw new ConflictError('Work can be edited only in backlog or ready state.');
+					}
+					if (
+						work.currentAttemptId &&
+						(await this.repository.findAttempt(projectId, work.currentAttemptId, ctx))?.phase !==
+							'terminal'
+					) {
+						throw new ConflictError('Work cannot change while a wake or run is active.');
+					}
+					const goalId = dto.goalId === undefined ? work.goalId : dto.goalId;
+					const assigneeId =
+						dto.assigneeMemberId === undefined ? work.assigneeMemberId : dto.assigneeMemberId;
+					await this.validateWorkReferences(projectId, departmentId, goalId, assigneeId, ctx);
+					const previousReviewPolicy = work.reviewPolicy;
+					const previousReviewStagesJson = work.reviewStagesJson;
+					const nextReviewPolicy = dto.reviewPolicy ?? previousReviewPolicy;
+					if (dto.reviewStages !== undefined && nextReviewPolicy === 'automatic') {
+						throw new UserError('Automatic review cannot define reviewer stages.');
+					}
+					if (dto.reviewStages?.some((stage) => stage.reviewers.kind === 'members')) {
+						throw new UserError(
+							'Agent reviewers are unavailable until their review context is verified.',
+						);
+					}
+					const nextReviewStagesJson =
+						dto.reviewStages !== undefined
+							? JSON.stringify(dto.reviewStages)
+							: nextReviewPolicy !== previousReviewPolicy
+								? nextReviewPolicy === 'automatic'
+									? null
+									: (previousReviewStagesJson ??
+										JSON.stringify([
+											{
+												id: 'human-review',
+												reviewers: { kind: 'authorized_writers' },
+												actorFilter: 'human_only',
+											},
+										]))
+								: previousReviewStagesJson;
+					const reviewPolicyChanged =
+						nextReviewPolicy !== previousReviewPolicy ||
+						nextReviewStagesJson !== previousReviewStagesJson;
+					if (
+						reviewPolicyChanged &&
+						work.state === 'ready' &&
+						(await this.repository.findPendingEligibilityForWork(projectId, work.id, ctx))
+					) {
+						throw new ConflictError('Review policy cannot change while work has pending dispatch.');
+					}
+					const priorAssigneeMemberId = work.assigneeMemberId;
+					if (dto.instruction !== undefined) work.instruction = dto.instruction.trim();
+					if (dto.goalId !== undefined) work.goalId = dto.goalId;
+					if (dto.assigneeMemberId !== undefined) {
+						work.assigneeMemberId = dto.assigneeMemberId;
+						if (dto.assigneeMemberId !== priorAssigneeMemberId) {
+							work.assignedByUserId = dto.assigneeMemberId ? actorId : null;
+						}
+					}
+					if (dto.priority !== undefined) work.priority = dto.priority;
+					if (dto.dueAt !== undefined) work.dueAt = dto.dueAt ? new Date(dto.dueAt) : null;
+					work.reviewPolicy = nextReviewPolicy;
+					if (reviewPolicyChanged) {
+						work.reviewStagesJson = nextReviewStagesJson;
+						work.currentReviewStageIndex = 0;
+						work.reviewPolicyRevision += 1;
+						work.reviewPolicyRevisionId = randomUUID();
+					}
+					work.version += 1;
+					const saved = await this.repository.saveWork(work, ctx);
+					if (reviewPolicyChanged) {
+						await this.repository.saveReviewPolicyRevision(
+							Object.assign(new WorkReviewPolicyRevision(), {
+								id: saved.reviewPolicyRevisionId,
+								projectId,
+								departmentId,
+								workId: saved.id,
+								revision: saved.reviewPolicyRevision,
+								mode: saved.reviewPolicy,
+								stagesJson: saved.reviewStagesJson ?? '[]',
+								createdByUserId: actorId,
+								createdAt: new Date(),
+							}),
+							ctx,
+						);
+					}
+					if (
+						saved.state === 'ready' &&
+						dto.assigneeMemberId !== undefined &&
+						dto.assigneeMemberId !== priorAssigneeMemberId
+					) {
+						await this.repository.cancelPendingEligibility(projectId, workId, ctx);
+						await this.repository.markPendingWakesDelivered(workId, ctx);
+						if (saved.assigneeMemberId)
+							await this.enqueueWorkWake(saved, actorId, dto.requestId, ctx);
+					}
+					const result = toWorkDto(saved);
+					await this.recordWorkCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'work.update',
+						saved,
+						result,
+						ctx,
+					);
+					return result;
+				}),
+		);
 	}
 
 	async markReady(
@@ -1450,65 +2482,70 @@ export class WorkService {
 			expectedVersion: dto.expectedVersion,
 			action: 'ready',
 		});
-		return await this.txRunner.run({}, async (ctx) => {
-			await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
-			const previous = replayReceipt(
-				await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
-				hash,
-				aiDepartmentWorkItemDtoSchema,
-			);
-			if (previous) return previous;
-			await this.requireActiveDepartment(projectId, departmentId, ctx);
-			const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
-			if (!work) throw new NotFoundError('Work item not found.');
-			if (work.version !== dto.expectedVersion)
-				throw new ConflictError('Work item has changed. Reload and try again.');
-			if (work.state !== 'backlog')
-				throw new ConflictError('Only backlog work can be marked ready.');
-			if (!work.assigneeMemberId)
-				throw new UserError('Assign this work to an active department member first.');
-			const assignee = await this.repository.findMember(
-				projectId,
-				departmentId,
-				work.assigneeMemberId,
-				ctx,
-			);
-			if (!assignee || assignee.archived)
-				throw new UserError('Assign this work to an active department member first.');
-			if (await this.repository.hasUnresolvedBlockers(projectId, departmentId, workId, ctx)) {
-				throw new ConflictError('Resolve all blocking work before marking this item ready.');
-			}
-			const fromState = work.state;
-			work.state = transitionWorkState(work.state, 'ready', false);
-			work.version += 1;
-			const saved = await this.repository.saveWork(work, ctx);
-			await this.repository.addTransition(
-				this.transition(
-					projectId,
-					departmentId,
-					saved,
-					fromState,
-					saved.state,
-					actorId,
-					'user',
-					dto.reason ?? null,
-				),
-				ctx,
-			);
-			await this.enqueueWorkWake(saved, actorId, dto.requestId, ctx);
-			const result = toWorkDto(saved);
-			await this.recordWorkCommand(
-				projectId,
-				actorId,
-				dto.requestId,
-				hash,
-				'work.ready',
-				saved,
-				result,
-				ctx,
-			);
-			return result;
-		});
+		return await this.runAndNotify(
+			projectId,
+			departmentId,
+			async () =>
+				await this.txRunner.run({}, async (ctx) => {
+					await this.repository.acquireAdmissionFence(projectId, departmentId, ctx);
+					const previous = replayReceipt(
+						await this.directory.findReceipt(projectId, actorId, dto.requestId, ctx),
+						hash,
+						aiDepartmentWorkItemDtoSchema,
+					);
+					if (previous) return previous;
+					await this.requireActiveDepartment(projectId, departmentId, ctx);
+					const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
+					if (!work) throw new NotFoundError('Work item not found.');
+					if (work.version !== dto.expectedVersion)
+						throw new ConflictError('Work item has changed. Reload and try again.');
+					if (work.state !== 'backlog')
+						throw new ConflictError('Only backlog work can be marked ready.');
+					if (!work.assigneeMemberId)
+						throw new UserError('Assign this work to an active department member first.');
+					const assignee = await this.repository.findMember(
+						projectId,
+						departmentId,
+						work.assigneeMemberId,
+						ctx,
+					);
+					if (!assignee || assignee.archived)
+						throw new UserError('Assign this work to an active department member first.');
+					if (await this.repository.hasUnresolvedBlockers(projectId, departmentId, workId, ctx)) {
+						throw new ConflictError('Resolve all blocking work before marking this item ready.');
+					}
+					const fromState = work.state;
+					work.state = transitionWorkState(work.state, 'ready', false);
+					work.version += 1;
+					const saved = await this.repository.saveWork(work, ctx);
+					await this.repository.addTransition(
+						this.transition(
+							projectId,
+							departmentId,
+							saved,
+							fromState,
+							saved.state,
+							actorId,
+							'user',
+							dto.reason ?? null,
+						),
+						ctx,
+					);
+					await this.enqueueWorkWake(saved, actorId, dto.requestId, ctx);
+					const result = toWorkDto(saved);
+					await this.recordWorkCommand(
+						projectId,
+						actorId,
+						dto.requestId,
+						hash,
+						'work.ready',
+						saved,
+						result,
+						ctx,
+					);
+					return result;
+				}),
+		);
 	}
 
 	private async enqueueWorkWake(
@@ -1680,12 +2717,17 @@ export class WorkService {
 		workId: string,
 		expectedVersion: number,
 		ctx: OperationContext,
+		allowCancelled = false,
 	) {
 		const work = await this.repository.findWork(projectId, departmentId, workId, ctx);
 		if (!work) throw new NotFoundError('Work item not found.');
 		if (work.version !== expectedVersion)
 			throw new ConflictError('Work item has changed. Reload and try again.');
-		if (work.state !== 'backlog' && work.state !== 'ready')
+		if (
+			work.state !== 'backlog' &&
+			work.state !== 'ready' &&
+			!(allowCancelled && work.state === 'cancelled')
+		)
 			throw new ConflictError('Relationships can only change before work starts.');
 		if (
 			work.currentAttemptId &&
@@ -1862,7 +2904,11 @@ export class WorkService {
 		requestId: string,
 		hash: string,
 		operation: string,
-		result: AiDepartmentGoalDto | AiDepartmentWorkItemDto | AiDepartmentWorkRelationshipDto,
+		result:
+			| AiDepartmentGoalDto
+			| AiDepartmentWorkItemDto
+			| AiDepartmentWorkRelationshipDto
+			| AiDepartmentWorkActivityResult,
 	) {
 		return Object.assign(new CommandReceipt(), {
 			id: randomUUID(),

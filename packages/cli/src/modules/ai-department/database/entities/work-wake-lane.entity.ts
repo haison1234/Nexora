@@ -18,6 +18,7 @@ export class WorkWakeLane extends WithCreatedAt {
 	@PrimaryColumn({ type: 'int' }) bindingVersion: number;
 	@Column({ type: 'int' }) generation: number;
 	@Column({ type: 'int' }) acknowledgedGeneration: number;
+	@Column({ type: 'varchar', length: 36, nullable: true }) activeAttemptId: string | null;
 	@Column({ type: 'varchar', length: 16 }) state: WorkWakeLaneState;
 	@DateTimeColumn() updatedAt: Date;
 }
